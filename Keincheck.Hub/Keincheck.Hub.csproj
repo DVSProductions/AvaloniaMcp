@@ -9,6 +9,8 @@
          so it runs on the installed .NET 10 runtime. -->
     <RollForward>Major</RollForward>
     <BuiltInComInteropSupport>true</BuiltInComInteropSupport>
+    <!-- Win32 executable icon (shows on the .exe, taskbar, and Velopack shortcut). -->
+    <ApplicationIcon>Assets\app.ico</ApplicationIcon>
   </PropertyGroup>
 
   <!-- The hub runs Kestrel in-process for the loopback MCP endpoint; it needs the

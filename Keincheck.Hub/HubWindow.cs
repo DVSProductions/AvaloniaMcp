@@ -23,12 +23,30 @@ public sealed class HubWindow : Window
         DataContext = vm;
 
         Title = "Keincheck Hub";
+        Icon = LoadWindowIcon();
         Width = 640;
         Height = 520;
         MinWidth = 480;
         MinHeight = 360;
 
         Content = BuildLayout();
+    }
+
+    /// <summary>Loads the embedded logo for the taskbar / title-bar icon (best-effort).</summary>
+    private static WindowIcon? LoadWindowIcon()
+    {
+        try
+        {
+            var uri = new Uri("avares://Keincheck.Hub/Assets/tray.ico");
+            if (Avalonia.Platform.AssetLoader.Exists(uri))
+                using (var stream = Avalonia.Platform.AssetLoader.Open(uri))
+                    return new WindowIcon(stream);
+        }
+        catch
+        {
+            // No asset available — Avalonia draws its default window glyph.
+        }
+        return null;
     }
 
     private Control BuildLayout()

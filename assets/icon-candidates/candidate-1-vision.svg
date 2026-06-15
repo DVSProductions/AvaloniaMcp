@@ -1,0 +1,59 @@
+<svg viewBox="0 0 256 256" width="256" height="256" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#1b2236"/>
+      <stop offset="1" stop-color="#0e1320"/>
+    </linearGradient>
+    <linearGradient id="iris" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#46e6d6"/>
+      <stop offset="0.55" stop-color="#5b8cff"/>
+      <stop offset="1" stop-color="#9b6cff"/>
+    </linearGradient>
+    <radialGradient id="lensWell" cx="0.5" cy="0.42" r="0.65">
+      <stop offset="0" stop-color="#1a2138"/>
+      <stop offset="0.7" stop-color="#11172a"/>
+      <stop offset="1" stop-color="#090d18"/>
+    </radialGradient>
+  </defs>
+
+  <!-- Badge -->
+  <rect x="8" y="8" width="240" height="240" rx="48" fill="url(#bg)"/>
+  <rect x="9.5" y="9.5" width="237" height="237" rx="46.5" fill="none" stroke="#5b8cff" stroke-opacity="0.16" stroke-width="2"/>
+
+  <!-- Lens / aperture assembly centered at 128,128 -->
+  <g>
+    <!-- Outer lens barrel ring -->
+    <circle cx="128" cy="128" r="86" fill="none" stroke="#2a3350" stroke-width="9"/>
+    <circle cx="128" cy="128" r="80" fill="url(#lensWell)"/>
+
+    <!-- Aperture blades: regular hexagonal iris, alternating shades for depth -->
+    <g>
+      <path d="M 128 54 L 192.1 91 L 154 113 L 128 98 Z"   fill="url(#iris)"/>
+      <path d="M 192.1 91 L 192.1 165 L 154 143 L 154 113 Z" fill="url(#iris)" fill-opacity="0.82"/>
+      <path d="M 192.1 165 L 128 202 L 128 158 L 154 143 Z"  fill="url(#iris)"/>
+      <path d="M 128 202 L 63.9 165 L 102 143 L 128 158 Z"   fill="url(#iris)" fill-opacity="0.82"/>
+      <path d="M 63.9 165 L 63.9 91 L 102 113 L 102 143 Z"   fill="url(#iris)"/>
+      <path d="M 63.9 91 L 128 54 L 128 98 L 102 113 Z"      fill="url(#iris)" fill-opacity="0.82"/>
+    </g>
+    <!-- blade seam definition (subtle inner stroke on the iris hexagon) -->
+    <path d="M 128 54 L 192.1 91 L 192.1 165 L 128 202 L 63.9 165 L 63.9 91 Z"
+          fill="none" stroke="#0e1320" stroke-opacity="0.25" stroke-width="2"/>
+
+    <!-- Pupil opening: tiny abstract UI window the AI inspects -->
+    <path d="M 128 98 L 154 113 L 154 143 L 128 158 L 102 143 L 102 113 Z" fill="#0b1020"/>
+    <rect x="103" y="106" width="50" height="44" rx="6" fill="#161d33" stroke="#46e6d6" stroke-width="2.5"/>
+    <!-- title bar -->
+    <path d="M 103 114 a6 6 0 0 1 6 -8 h38 a6 6 0 0 1 6 8 Z" fill="#23304f"/>
+    <circle cx="111" cy="112" r="2.2" fill="#46e6d6"/>
+    <circle cx="118.5" cy="112" r="2.2" fill="#5b8cff"/>
+    <circle cx="126" cy="112" r="2.2" fill="#9b6cff"/>
+    <!-- inspected control rows -->
+    <rect x="108" y="123" width="28" height="3.6" rx="1.8" fill="#5b8cff"/>
+    <rect x="108" y="131" width="40" height="3.6" rx="1.8" fill="#39466b"/>
+    <rect x="108" y="139" width="20" height="3.6" rx="1.8" fill="#39466b"/>
+
+    <!-- catchlight / lens glints -->
+    <circle cx="113" cy="110" r="5.5" fill="#ffffff" opacity="0.85"/>
+    <circle cx="146" cy="148" r="2.6" fill="#ffffff" opacity="0.4"/>
+  </g>
+</svg>

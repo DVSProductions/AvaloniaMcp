@@ -1,0 +1,35 @@
+<svg viewBox="0 0 256 256" width="256" height="256" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#1F2A44"/>
+      <stop offset="1" stop-color="#141B2E"/>
+    </linearGradient>
+    <linearGradient id="check" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#3DDC97"/>
+      <stop offset="1" stop-color="#19B574"/>
+    </linearGradient>
+  </defs>
+
+  <!-- Badge background -->
+  <rect x="0" y="0" width="256" height="256" rx="48" fill="url(#bg)"/>
+
+  <!-- App window glyph -->
+  <g>
+    <!-- Window body -->
+    <rect x="44" y="52" width="168" height="152" rx="22" fill="#273350"/>
+    <!-- Title bar -->
+    <path d="M44 74 a22 22 0 0 1 22-22 h124 a22 22 0 0 1 22 22 v14 h-168 z" fill="#34466B"/>
+    <!-- Traffic-light controls -->
+    <circle cx="68" cy="70" r="6" fill="#5E7299"/>
+    <circle cx="88" cy="70" r="6" fill="#5E7299"/>
+    <circle cx="108" cy="70" r="6" fill="#5E7299"/>
+  </g>
+
+  <!-- Bold checkmark filling the window content area -->
+  <path d="M86 138 L114 166 L172 100"
+        fill="none"
+        stroke="url(#check)"
+        stroke-width="26"
+        stroke-linecap="round"
+        stroke-linejoin="round"/>
+</svg>

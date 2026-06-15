@@ -21,7 +21,8 @@ permissions:
 
 jobs:
   publish:
-    runs-on: ubuntu-latest
+    # Windows runner: Keincheck.Wpf (net8.0-windows + UseWPF) only builds on Windows.
+    runs-on: windows-latest
     steps:
       - uses: actions/checkout@v4
 
@@ -43,8 +44,9 @@ jobs:
           fi
 
       - name: Pack the library packages
+        shell: bash
         run: |
-          for proj in Keincheck.Protocol Keincheck.Core Keincheck.Client Keincheck.Avalonia Keincheck; do
+          for proj in Keincheck.Protocol Keincheck.Core Keincheck.Client Keincheck.Avalonia Keincheck.Wpf Keincheck; do
             dotnet pack "$proj/$proj.csproj" -c Release -o artifacts/nupkg ${{ steps.ver.outputs.arg }}
           done
 

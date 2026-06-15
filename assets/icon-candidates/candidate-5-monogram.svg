@@ -1,0 +1,39 @@
+<svg viewBox="0 0 256 256" width="256" height="256" xmlns="http://www.w3.org/2000/svg">
+  <title>Keincheck monogram</title>
+  <defs>
+    <linearGradient id="kc-bg" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#1E2A44"/>
+      <stop offset="1" stop-color="#111A2E"/>
+    </linearGradient>
+    <linearGradient id="kc-k" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#7DD3FC"/>
+      <stop offset="1" stop-color="#38BDF8"/>
+    </linearGradient>
+  </defs>
+
+  <!-- Badge -->
+  <rect x="8" y="8" width="240" height="240" rx="48" fill="url(#kc-bg)"/>
+  <rect x="8.5" y="8.5" width="239" height="239" rx="47.5" fill="none" stroke="#3B5072" stroke-opacity="0.45" stroke-width="1"/>
+
+  <!-- Vertical stem of the K -->
+  <rect x="64" y="62" width="30" height="132" rx="8" fill="url(#kc-k)"/>
+
+  <!-- Lower diagonal leg of the K -->
+  <path d="M94 128 L142 194 L113 194 L78 146 Z" fill="url(#kc-k)"/>
+
+  <!-- Upper diagonal + checkmark: the K's upstroke pivots into a check tick -->
+  <path d="M94 128
+           L150 70
+           L172 70
+           L120 124
+           L150 154
+           L210 80
+           L210 110
+           L156 178
+           L132 178
+           Z"
+        fill="url(#kc-k)"/>
+
+  <!-- Accent node where strokes meet (cursor/pixel cue) -->
+  <rect x="86" y="120" width="16" height="16" rx="4" fill="#FACC15"/>
+</svg>

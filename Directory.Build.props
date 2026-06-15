@@ -16,7 +16,7 @@
   <!-- Shared product / package metadata. Version is the single source of truth for
        assembly versions; the Velopack release version is passed to `vpk pack -v`. -->
   <PropertyGroup>
-    <Version>0.2.0</Version>
+    <Version>0.3.0</Version>
     <Authors>Valentino Saitz</Authors>
     <Company>DVSProductions</Company>
     <Product>Keincheck</Product>
@@ -24,15 +24,17 @@
     <RepositoryUrl>https://github.com/DVSProductions/Keincheck.git</RepositoryUrl>
     <RepositoryType>git</RepositoryType>
     <PackageLicenseExpression>MIT</PackageLicenseExpression>
+    <PackageIcon>icon.png</PackageIcon>
   </PropertyGroup>
 
   <!-- Packaging: nothing is packable by default; the four library projects opt in
-       with <IsPackable>true</IsPackable>. Every package ships the repo README. -->
+       with <IsPackable>true</IsPackable>. Every package ships the repo README + logo. -->
   <PropertyGroup>
     <IsPackable>false</IsPackable>
     <PackageReadmeFile>README.md</PackageReadmeFile>
   </PropertyGroup>
   <ItemGroup>
     <None Include="$(MSBuildThisFileDirectory)README.md" Pack="true" PackagePath="\" Visible="false" />
+    <None Include="$(MSBuildThisFileDirectory)assets\icon.png" Pack="true" PackagePath="\" Visible="false" />
   </ItemGroup>
 </Project>

@@ -1,0 +1,36 @@
+<svg viewBox="0 0 256 256" width="256" height="256" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#1e293b"/>
+      <stop offset="1" stop-color="#0f172a"/>
+    </linearGradient>
+    <linearGradient id="core" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#38bdf8"/>
+      <stop offset="1" stop-color="#0ea5e9"/>
+    </linearGradient>
+  </defs>
+
+  <!-- Badge background -->
+  <rect x="0" y="0" width="256" height="256" rx="48" fill="url(#bg)"/>
+
+  <!-- Connection spokes from hub to outer nodes -->
+  <g stroke="#475569" stroke-width="9" stroke-linecap="round" fill="none">
+    <line x1="128" y1="128" x2="128" y2="60"/>
+    <line x1="128" y1="128" x2="186" y2="161"/>
+    <line x1="128" y1="128" x2="70" y2="161"/>
+  </g>
+
+  <!-- Outer nodes (the apps being driven) -->
+  <g fill="#e2e8f0">
+    <circle cx="128" cy="60" r="20"/>
+    <circle cx="186" cy="161" r="20"/>
+    <circle cx="70" cy="161" r="20"/>
+  </g>
+
+  <!-- Accent ring around the hub -->
+  <circle cx="128" cy="128" r="46" fill="none" stroke="#38bdf8" stroke-width="6" opacity="0.35"/>
+
+  <!-- Central hub node (the broker) -->
+  <circle cx="128" cy="128" r="34" fill="url(#core)"/>
+  <circle cx="128" cy="128" r="14" fill="#0f172a"/>
+</svg>

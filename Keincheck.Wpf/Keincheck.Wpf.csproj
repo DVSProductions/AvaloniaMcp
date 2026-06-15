@@ -11,18 +11,19 @@
     <!-- NuGet package metadata -->
     <PackageId>Keincheck.Wpf</PackageId>
     <IsPackable>true</IsPackable>
-    <Version>0.2.0</Version>
+    <Version>0.3.0</Version>
     <Authors>Keincheck</Authors>
-    <Description>The WPF implementation of the Keincheck neutral UI seam (STAGE A scaffold): WpfUiAdapter (IUiAdapter), WpfUiDispatcher (IUiDispatcher), and the UseKeincheckClient application integration. Adapter logic lands in Stage B.</Description>
+    <Description>The WPF implementation of the Keincheck neutral UI seam: WpfUiAdapter (IUiAdapter over System.Windows.*), WpfUiDispatcher (IUiDispatcher), and the UseKeincheckClient application integration — connects a WPF app to the Keincheck hub so an AI can see and drive its UI (visual/logical tree, properties, UI Automation, synthetic input, screenshots).</Description>
     <PackageTags>wpf;mcp;ai;automation;ui;introspection</PackageTags>
     <IncludeBuildOutput>true</IncludeBuildOutput>
   </PropertyGroup>
 
   <!--
     Keincheck.Wpf owns ALL WPF type knowledge. It implements the neutral
-    IUiAdapter / IUiDispatcher over WPF and wires the broker client through
-    Keincheck.Client's framework-free BrokerClientHost. STAGE A: scaffold only —
-    the WpfUiAdapter bodies throw NotImplementedException so the project compiles.
+    IUiAdapter / IUiDispatcher over WPF (visual/logical tree, DependencyProperty,
+    UI Automation peers, Win32 synthetic input, RenderTargetBitmap + GDI-fallback
+    screenshots) and wires the broker client through Keincheck.Client's
+    framework-free BrokerClientHost. Full 22-tool parity with the Avalonia adapter.
   -->
   <ItemGroup>
     <ProjectReference Include="..\Keincheck.Core\Keincheck.Core.csproj" />

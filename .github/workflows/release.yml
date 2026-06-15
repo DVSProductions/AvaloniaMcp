@@ -45,6 +45,7 @@ jobs:
         run: >
           vpk pack -u Keincheck.Hub -v ${{ steps.ver.outputs.version }}
           -p publish -e Keincheck.Hub.exe
+          --icon assets/icon.ico
           --packTitle "Keincheck Hub" --packAuthors "Valentino Saitz"
 
       - name: Upload to GitHub release

@@ -1,0 +1,31 @@
+<svg viewBox="0 0 256 256" width="256" height="256" xmlns="http://www.w3.org/2000/svg">
+  <!-- Keincheck logo: a central broker hub wired to three app nodes.
+       No background — fills the canvas, reads on light and dark (tray/app/NuGet). -->
+  <defs>
+    <linearGradient id="kcCore" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#38bdf8"/>
+      <stop offset="1" stop-color="#0284c7"/>
+    </linearGradient>
+  </defs>
+
+  <!-- orbit ring -->
+  <circle cx="128" cy="128" r="62" fill="none" stroke="#0ea5e9" stroke-width="7" opacity="0.5"/>
+
+  <!-- connection spokes -->
+  <g stroke="#0ea5e9" stroke-width="14" stroke-linecap="round">
+    <line x1="128" y1="128" x2="128" y2="40"/>
+    <line x1="128" y1="128" x2="204" y2="172"/>
+    <line x1="128" y1="128" x2="52" y2="172"/>
+  </g>
+
+  <!-- outer app nodes -->
+  <g fill="#38bdf8">
+    <circle cx="128" cy="40" r="27"/>
+    <circle cx="204" cy="172" r="27"/>
+    <circle cx="52" cy="172" r="27"/>
+  </g>
+
+  <!-- central broker hub -->
+  <circle cx="128" cy="128" r="46" fill="url(#kcCore)"/>
+  <circle cx="128" cy="128" r="18" fill="#eaf6ff"/>
+</svg>
