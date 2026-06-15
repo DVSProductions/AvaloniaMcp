@@ -1,0 +1,62 @@
+name: Publish to NuGet
+
+# Publishes the Keincheck library packages to NuGet.org via Trusted Publishing
+# (GitHub OIDC — no stored API key). Runs on a version tag, or on demand.
+#
+# Requires a NuGet Trusted Publishing policy:
+#   Package Owner:    <your nuget.org account/org>
+#   Repository Owner: DVSProductions
+#   Repository:       Keincheck
+#   Workflow File:    publish-nuget.yml
+#   Environment:      (leave empty)
+on:
+  push:
+    tags:
+      - 'v*.*.*'
+  workflow_dispatch:
+
+permissions:
+  id-token: write   # exchange GitHub's OIDC token for a short-lived NuGet key
+  contents: read
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: |
+            8.0.x
+            10.0.x
+
+      - name: Derive version (tag runs override the csproj version)
+        id: ver
+        shell: bash
+        run: |
+          if [ "$GITHUB_REF_TYPE" = "tag" ]; then
+            echo "arg=-p:Version=${GITHUB_REF_NAME#v}" >> "$GITHUB_OUTPUT"
+          else
+            echo "arg=" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Pack the library packages
+        run: |
+          for proj in Keincheck.Protocol Keincheck.Core Keincheck.Client Keincheck; do
+            dotnet pack "$proj/$proj.csproj" -c Release -o artifacts/nupkg ${{ steps.ver.outputs.arg }}
+          done
+
+      - name: NuGet login (Trusted Publishing via OIDC)
+        uses: NuGet/login@v1
+        id: login
+        with:
+          user: DVSProductions   # your nuget.org account username
+
+      - name: Push to NuGet
+        run: >
+          dotnet nuget push "artifacts/nupkg/*.nupkg"
+          --source https://api.nuget.org/v3/index.json
+          --api-key "${{ steps.login.outputs.NUGET_API_KEY }}"
+          --skip-duplicate
