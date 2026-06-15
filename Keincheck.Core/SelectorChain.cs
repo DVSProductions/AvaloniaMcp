@@ -1,15 +1,11 @@
 using System.Text;
-using Avalonia;
-using Avalonia.Controls;
-using Avalonia.LogicalTree;
-using Avalonia.VisualTree;
 
 namespace Keincheck.Core;
 
 /// <summary>
-/// A parsed CSS-ish selector: a sequence of simple selectors joined by
-/// descendant (whitespace) or child (<c>&gt;</c>) combinators. Matching walks
-/// the merged logical+visual tree under a given root.
+/// A parsed CSS-ish selector: a sequence of simple selectors joined by descendant
+/// (whitespace) or child (<c>&gt;</c>) combinators. Matching walks the merged
+/// logical+visual tree under a given root, driven through <see cref="IUiAdapter"/>.
 /// </summary>
 internal sealed class SelectorChain
 {
@@ -67,14 +63,14 @@ internal sealed class SelectorChain
     }
 
     /// <summary>
-    /// Enumerates every control under (and including) <paramref name="root"/>
-    /// that matches the full chain.
+    /// Enumerates every control under (and including) <paramref name="root"/> that
+    /// matches the full chain, walking the tree through <paramref name="ui"/>.
     /// </summary>
-    public IEnumerable<Control> Match(Visual root)
+    public IEnumerable<object> Match(object root, IUiAdapter ui)
     {
         // Candidate set for the first step: root + all descendants matching step[0].
-        IEnumerable<Visual> current = Descendants(root, includeSelf: true)
-            .Where(v => _steps[0].Selector.Matches(v));
+        IEnumerable<object> current = Descendants(root, ui, includeSelf: true)
+            .Where(v => _steps[0].Selector.Matches(v, ui));
 
         for (var s = 1; s < _steps.Count; s++)
         {
@@ -82,36 +78,35 @@ internal sealed class SelectorChain
             current = step.Combinator switch
             {
                 Combinator.Child => current.SelectMany(parent =>
-                    Children(parent).Where(c => step.Selector.Matches(c))),
+                    Children(parent, ui).Where(c => step.Selector.Matches(c, ui))),
                 _ => current.SelectMany(ancestor =>
-                    Descendants(ancestor, includeSelf: false).Where(c => step.Selector.Matches(c))),
+                    Descendants(ancestor, ui, includeSelf: false).Where(c => step.Selector.Matches(c, ui))),
             };
         }
 
-        // Distinct, only Controls.
-        var seen = new HashSet<Visual>(ReferenceEqualityComparer.Instance);
+        // Distinct, only controls.
+        var seen = new HashSet<object>(ReferenceEqualityComparer.Instance);
         foreach (var v in current)
         {
-            if (v is Control c && seen.Add(v))
-                yield return c;
+            if (ui.IsControl(v) && seen.Add(v))
+                yield return v;
         }
     }
 
     /// <summary>
-    /// Depth-first traversal of the merged logical+visual subtree. Logical
-    /// children are preferred (they are the author-facing tree); visual-only
-    /// children (template parts) are also included so template content is
-    /// reachable.
+    /// Depth-first traversal of the merged logical+visual subtree. Logical children
+    /// are preferred (they are the author-facing tree); visual-only children (template
+    /// parts) are also included so template content is reachable.
     /// </summary>
-    private static IEnumerable<Visual> Descendants(Visual root, bool includeSelf)
+    private static IEnumerable<object> Descendants(object root, IUiAdapter ui, bool includeSelf)
     {
-        // Iterative pre-order DFS with a visited guard. The merged logical+visual
-        // graph can contain cycles (e.g. popup/overlay/adorner cross-links between
-        // the two trees), so a naive recursive walk overflows the stack. The
-        // visited set breaks cycles and de-duplicates diamond paths; pushing
-        // children in reverse preserves document order on pop.
-        var visited = new HashSet<Visual>(ReferenceEqualityComparer.Instance);
-        var stack = new Stack<Visual>();
+        // Iterative pre-order DFS with a visited guard. The merged logical+visual graph
+        // can contain cycles (e.g. popup/overlay/adorner cross-links between the two
+        // trees), so a naive recursive walk overflows the stack. The visited set breaks
+        // cycles and de-duplicates diamond paths; pushing children in reverse preserves
+        // document order on pop.
+        var visited = new HashSet<object>(ReferenceEqualityComparer.Instance);
+        var stack = new Stack<object>();
         stack.Push(root);
         var isRoot = true;
 
@@ -125,7 +120,7 @@ internal sealed class SelectorChain
                 yield return node;
             isRoot = false;
 
-            var children = Children(node).ToList();
+            var children = Children(node, ui).ToList();
             for (var k = children.Count - 1; k >= 0; k--)
             {
                 if (!visited.Contains(children[k]))
@@ -139,20 +134,17 @@ internal sealed class SelectorChain
     /// duplicates. This lets selectors reach both author-declared content and
     /// template-generated parts.
     /// </summary>
-    private static IEnumerable<Visual> Children(Visual node)
+    private static IEnumerable<object> Children(object node, IUiAdapter ui)
     {
-        var seen = new HashSet<Visual>(ReferenceEqualityComparer.Instance);
+        var seen = new HashSet<object>(ReferenceEqualityComparer.Instance);
 
-        if (node is ILogical logical)
+        foreach (var lc in ui.GetLogicalChildren(node))
         {
-            foreach (var lc in logical.LogicalChildren)
-            {
-                if (lc is Visual v && seen.Add(v))
-                    yield return v;
-            }
+            if (seen.Add(lc))
+                yield return lc;
         }
 
-        foreach (var vc in node.GetVisualChildren())
+        foreach (var vc in ui.GetVisualChildren(node))
         {
             if (seen.Add(vc))
                 yield return vc;
@@ -161,8 +153,8 @@ internal sealed class SelectorChain
 
     /// <summary>
     /// Splits a selector into combinator tokens. Whitespace separates simple
-    /// selectors; a bare <c>&gt;</c> becomes its own token. Brackets and quotes
-    /// are kept intact so attribute values may contain spaces.
+    /// selectors; a bare <c>&gt;</c> becomes its own token. Brackets and quotes are
+    /// kept intact so attribute values may contain spaces.
     /// </summary>
     private static List<string> Tokenize(string selector)
     {

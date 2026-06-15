@@ -1,0 +1,89 @@
+<Window x:Class="Keincheck.Wpf.Demo.MainWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:local="clr-namespace:Keincheck.Wpf.Demo"
+        Title="Keincheck WPF Demo"
+        Width="720" Height="560">
+
+  <!-- A small but representative test surface for the MCP tools, mirroring the Avalonia
+       Keincheck.Demo window. Every control is x:Named so the selector engine can address
+       it via #Name, and the standard controls expose UI-Automation peers
+       (Invoke/Toggle/Value/SelectionItem). The GaugeControl at the bottom is
+       custom-drawn and exposes NO peer, so the synthetic-input fallback has a real target. -->
+  <ScrollViewer>
+    <StackPanel x:Name="Root" Margin="16">
+      <StackPanel.Resources>
+        <Thickness x:Key="Gap">0,6,0,6</Thickness>
+      </StackPanel.Resources>
+
+      <TextBlock x:Name="Heading"
+                 Text="Keincheck WPF Demo"
+                 FontSize="22"
+                 FontWeight="SemiBold"
+                 Margin="{StaticResource Gap}" />
+
+      <TextBlock x:Name="StatusHeader"
+                 Text="Connected to the Keincheck hub as 'wpfdemo'."
+                 Opacity="0.7"
+                 Margin="{StaticResource Gap}" />
+
+      <!-- Button "Save": the click handler mutates a bound ViewModel property. -->
+      <StackPanel Orientation="Horizontal" Margin="{StaticResource Gap}">
+        <Button x:Name="Save"
+                Content="Save"
+                Padding="12,4"
+                Click="OnSaveClick" />
+        <TextBlock x:Name="CountLabel"
+                   VerticalAlignment="Center"
+                   Margin="12,0,0,0"
+                   Text="{Binding ClickCount, StringFormat='Saves: {0}'}" />
+      </StackPanel>
+
+      <!-- TextBox "Input": two-way bound to Name. -->
+      <StackPanel Margin="{StaticResource Gap}">
+        <TextBlock Text="Name (TextBox 'Input', two-way):" Opacity="0.7" />
+        <TextBox x:Name="Input"
+                 Width="280"
+                 HorizontalAlignment="Left"
+                 Text="{Binding Name, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" />
+      </StackPanel>
+
+      <!-- CheckBox: two-way bound to IsSubscribed. -->
+      <CheckBox x:Name="SubscribeCheck"
+                Content="Subscribed"
+                Margin="{StaticResource Gap}"
+                IsChecked="{Binding IsSubscribed, Mode=TwoWay}" />
+
+      <!-- ListBox: bound items + two-way selection. -->
+      <StackPanel Margin="{StaticResource Gap}">
+        <TextBlock Text="Items (ListBox):" Opacity="0.7" />
+        <ListBox x:Name="ItemsList"
+                 Height="120"
+                 ItemsSource="{Binding Items}"
+                 SelectedItem="{Binding SelectedItem, Mode=TwoWay}" />
+        <TextBlock x:Name="SelectionLabel"
+                   Opacity="0.7"
+                   Text="{Binding SelectedItem, StringFormat='Selected: {0}'}" />
+      </StackPanel>
+
+      <!-- Custom-drawn control with NO automation peer: click to advance the gauge.
+           This is the synthetic-input fallback target. -->
+      <StackPanel Margin="{StaticResource Gap}">
+        <TextBlock Text="GaugeControl (custom-drawn, no automation peer — click to advance):"
+                   Opacity="0.7" />
+        <local:GaugeControl x:Name="Gauge"
+                            Width="220"
+                            Height="220"
+                            HorizontalAlignment="Left"
+                            Value="0.25" />
+      </StackPanel>
+
+      <TextBlock x:Name="MessageLabel"
+                 Opacity="0.7"
+                 Margin="{StaticResource Gap}"
+                 Text="{Binding StatusMessage}" />
+
+    </StackPanel>
+  </ScrollViewer>
+
+</Window>

@@ -1,11 +1,9 @@
-using Avalonia;
-using Avalonia.Controls;
-
 namespace Keincheck.Core;
 
 /// <summary>
-/// One simple selector: an optional type constraint plus zero or more
-/// attribute predicates, or a bare <c>#Name</c> id selector.
+/// One simple selector: an optional type constraint plus zero or more attribute
+/// predicates, or a bare <c>#Name</c> id selector. Matching is driven through
+/// <see cref="IUiAdapter"/> so the selector engine stays framework-free.
 /// </summary>
 internal sealed class SimpleSelector
 {
@@ -69,58 +67,37 @@ internal sealed class SimpleSelector
         return new SimpleSelector(typeName, attrs);
     }
 
-    /// <summary>Tests whether <paramref name="visual"/> satisfies this simple selector.</summary>
-    public bool Matches(Visual visual)
+    /// <summary>Tests whether <paramref name="element"/> satisfies this simple selector.</summary>
+    public bool Matches(object element, IUiAdapter ui)
     {
-        if (visual is not Control control)
+        if (!ui.IsControl(element))
             return false;
 
-        if (_typeName is not null && !MatchesType(control, _typeName))
+        if (_typeName is not null && !ui.MatchesType(element, _typeName))
             return false;
 
         foreach (var (name, value) in _attributes)
         {
-            if (!MatchesAttribute(control, name, value))
+            if (!MatchesAttribute(element, name, value, ui))
                 return false;
         }
 
         return true;
     }
 
-    private static bool MatchesType(Control control, string typeName)
+    private static bool MatchesAttribute(object element, string name, string value, IUiAdapter ui)
     {
-        for (var t = control.GetType(); t is not null && t != typeof(object); t = t.BaseType)
-        {
-            if (string.Equals(t.Name, typeName, StringComparison.Ordinal))
-                return true;
-        }
-        return false;
-    }
-
-    private static bool MatchesAttribute(Control control, string name, string value)
-    {
-        // The most common addressable attribute is Name; we also support a few
-        // other commonly-queried string-ish properties generically via reflection.
+        // The most common addressable attribute is Name; we also support a few other
+        // commonly-queried string-ish properties generically. Reads route through the
+        // adapter (which projects framework values to JSON-friendly forms); the
+        // comparison is ordinal against the string projection, matching v1 behavior.
         if (string.Equals(name, "Name", StringComparison.Ordinal))
-            return string.Equals(control.Name, value, StringComparison.Ordinal);
+            return string.Equals(ui.GetName(element), value, StringComparison.Ordinal);
 
-        var prop = control.GetType().GetProperty(
-            name,
-            System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.Instance);
-        if (prop is null || prop.GetIndexParameters().Length > 0)
+        if (!ui.TryReadProperty(element, name, out var actual) || actual is null)
             return false;
 
-        object? actual;
-        try
-        {
-            actual = prop.GetValue(control);
-        }
-        catch
-        {
-            return false;
-        }
-
-        return string.Equals(actual?.ToString(), value, StringComparison.Ordinal);
+        return string.Equals(actual.ToString(), value, StringComparison.Ordinal);
     }
 
     private static void ParseAttributes(string rest, List<(string, string)> attrs)

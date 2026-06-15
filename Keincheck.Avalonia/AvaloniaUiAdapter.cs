@@ -1,30 +1,34 @@
 using System.IO;
+using System.Reflection;
 using System.Text.Json;
 using Avalonia;
 using Avalonia.Automation.Peers;
 using Avalonia.Automation.Provider;
 using Avalonia.Controls;
+using Avalonia.Controls.ApplicationLifetimes;
 using Avalonia.Controls.Primitives;
 using Avalonia.Input;
 using Avalonia.LogicalTree;
 using Avalonia.Media.Imaging;
 using Avalonia.VisualTree;
+using Keincheck.Core;
 
-namespace Keincheck.Core;
+namespace Keincheck.Avalonia;
 
 /// <summary>
-/// The Avalonia 12 implementation of <see cref="IUiAdapter"/>. It owns the
-/// concrete toolkit calls — root enumeration, tree walks, the
-/// <see cref="AvaloniaPropertyRegistry"/>, <see cref="RenderTargetBitmap"/>
-/// rendering, UI-Automation peers, synthetic routed input, hit-testing, focus,
-/// and the <see cref="BindingErrorSink"/> — so the MCP tools (Phase B) can route
-/// every primitive through this single seam.
+/// The Avalonia 12 implementation of the framework-neutral <see cref="IUiAdapter"/>.
+/// It owns the concrete toolkit calls — root enumeration, tree walks, the
+/// <see cref="AvaloniaPropertyRegistry"/>, <see cref="RenderTargetBitmap"/> rendering,
+/// UI-Automation peers, synthetic routed input, hit-testing, focus, and the
+/// <see cref="BindingErrorSink"/> — and converts between Avalonia's element/geometry
+/// types and the neutral <see cref="object"/> handles + <see cref="UiRect"/>/
+/// <see cref="UiPoint"/>/<see cref="UiVector"/> structs at the seam.
 /// </summary>
 /// <remarks>
-/// Construct it with the shared <see cref="PropertyValueSerializer"/> (and an
-/// optional <see cref="BindingErrorSink"/>) the host already registers as DI
-/// singletons. All members are UI-thread-affine exactly like the tool bodies they
-/// back; the adapter does not re-marshal.
+/// Construct it with the shared <see cref="PropertyValueSerializer"/> (and an optional
+/// <see cref="BindingErrorSink"/>) the host registers as DI singletons. All members
+/// are UI-thread-affine exactly like the tool bodies they back; the adapter does not
+/// re-marshal.
 /// </remarks>
 public sealed class AvaloniaUiAdapter : IUiAdapter
 {
@@ -53,72 +57,260 @@ public sealed class AvaloniaUiAdapter : IUiAdapter
     // ---------------------------------------------------------------- topology
 
     /// <inheritdoc />
-    public IEnumerable<Visual> EnumerateRoots() => ControlRegistry.EnumerateRoots();
+    public IEnumerable<object> EnumerateRoots() => EnumerateRootsCore();
 
-    /// <inheritdoc />
-    public TopLevel? GetTopLevel(Visual visual) => TopLevel.GetTopLevel(visual);
-
-    /// <inheritdoc />
-    public IEnumerable<Control> GetLogicalChildren(Control control)
+    /// <summary>
+    /// All open top-level visuals (windows, popups) of the current application. Safe to
+    /// call only on the UI thread. (Moved here from the framework-free ControlRegistry.)
+    /// </summary>
+    internal static IEnumerable<Visual> EnumerateRootsCore()
     {
-        foreach (var lc in ((ILogical)control).LogicalChildren)
-            if (lc is Control c)
-                yield return c;
+        var app = Application.Current;
+        if (app is null)
+            yield break;
+
+        switch (app.ApplicationLifetime)
+        {
+            case IClassicDesktopStyleApplicationLifetime desktop:
+                foreach (var w in desktop.Windows)
+                    yield return w;
+                break;
+            case ISingleViewApplicationLifetime single when single.MainView is { } mv:
+                if (TopLevel.GetTopLevel(mv) is { } tl)
+                    yield return tl;
+                else
+                    yield return mv;
+                break;
+        }
     }
 
     /// <inheritdoc />
-    public IEnumerable<Control> GetVisualChildren(Control control)
+    public object? GetTopLevel(object element) =>
+        element is Visual v ? TopLevel.GetTopLevel(v) : null;
+
+    /// <inheritdoc />
+    public IEnumerable<object> GetLogicalChildren(object element)
     {
-        foreach (var vc in control.GetVisualChildren())
-            if (vc is Control c)
-                yield return c;
+        if (element is not ILogical logical)
+            yield break;
+        // Yield every logical child element (not just Controls): the selector walk needs
+        // to traverse THROUGH non-Control visuals (template internals, adorner relays) to
+        // reach controls beneath them. Consumers that want controls only filter via
+        // IsControl. Only Visual-derived children are addressable handles.
+        foreach (var lc in logical.LogicalChildren)
+            if (lc is Visual v)
+                yield return v;
+    }
+
+    /// <inheritdoc />
+    public IEnumerable<object> GetVisualChildren(object element)
+    {
+        if (element is not Visual visual)
+            yield break;
+        foreach (var vc in visual.GetVisualChildren())
+            yield return vc;
     }
 
     // ---------------------------------------------------------------- metadata
 
     /// <inheritdoc />
-    public string GetTypeName(Control control) => control.GetType().Name;
+    public bool IsControl(object element) => element is Control;
 
     /// <inheritdoc />
-    public string? GetName(Control control) => string.IsNullOrEmpty(control.Name) ? null : control.Name;
+    public string GetTypeName(object element) => element.GetType().Name;
 
     /// <inheritdoc />
-    public string? GetTitle(Control control) => control is Window w ? w.Title : null;
+    public bool MatchesType(object element, string typeName)
+    {
+        for (var t = element.GetType(); t is not null && t != typeof(object); t = t.BaseType)
+        {
+            if (string.Equals(t.Name, typeName, StringComparison.Ordinal))
+                return true;
+        }
+        return false;
+    }
 
     /// <inheritdoc />
-    public Rect GetBounds(Control control) => control.Bounds;
+    public string? GetName(object element) =>
+        element is Control c && !string.IsNullOrEmpty(c.Name) ? c.Name : null;
 
     /// <inheritdoc />
-    public bool IsEffectivelyVisible(Control control) => control.IsEffectivelyVisible;
+    public string? GetTitle(object element) => element is Window w ? w.Title : null;
 
     /// <inheritdoc />
-    public bool IsEffectivelyEnabled(Control control) => control.IsEffectivelyEnabled;
+    public UiRect GetBounds(object element)
+    {
+        if (element is Control c)
+        {
+            var b = c.Bounds;
+            return new UiRect(b.X, b.Y, b.Width, b.Height);
+        }
+        return UiRect.Empty;
+    }
 
     /// <inheritdoc />
-    public bool IsActiveWindow(Control control) => control is WindowBase wb && wb.IsActive;
+    public bool IsEffectivelyVisible(object element) => element is Control c && c.IsEffectivelyVisible;
+
+    /// <inheritdoc />
+    public bool IsEffectivelyEnabled(object element) => element is Control c && c.IsEffectivelyEnabled;
+
+    /// <inheritdoc />
+    public bool IsActiveWindow(object element) => element is WindowBase wb && wb.IsActive;
 
     // -------------------------------------------------------------- properties
 
     /// <inheritdoc />
-    public IEnumerable<AvaloniaProperty> GetRegisteredProperties(Control control) =>
-        AvaloniaPropertyRegistry.Instance.GetRegistered(control);
+    public IEnumerable<string> GetPropertyNames(object element)
+    {
+        if (element is not Control control)
+            yield break;
+        foreach (var prop in AvaloniaPropertyRegistry.Instance.GetRegistered(control))
+            yield return prop.Name;
+    }
 
     /// <inheritdoc />
-    public object? ReadProperty(Control control, AvaloniaProperty property) =>
-        _serializer.Read(control, property);
+    public bool TryReadProperty(object element, string name, out object? jsonFriendlyValue)
+    {
+        jsonFriendlyValue = null;
+        if (element is not Control control || string.IsNullOrEmpty(name))
+            return false;
+
+        // Prefer the styled/attached property of that name (more values are reachable
+        // that way), then fall back to a CLR property read — mirroring the v1
+        // serializer's two read paths so values are identical to before the refactor.
+        var avProp = AvaloniaPropertyRegistry.Instance.GetRegistered(control)
+            .FirstOrDefault(p => string.Equals(p.Name, name, StringComparison.Ordinal));
+        if (avProp is not null)
+        {
+            try
+            {
+                jsonFriendlyValue = Project(control.GetValue(avProp));
+                return true;
+            }
+            catch
+            {
+                jsonFriendlyValue = null;
+                return false;
+            }
+        }
+
+        var clr = FindClrProperty(control.GetType(), name);
+        if (clr is null || !clr.CanRead || clr.GetIndexParameters().Length > 0)
+            return false;
+
+        try
+        {
+            jsonFriendlyValue = Project(clr.GetValue(control));
+            return true;
+        }
+        catch
+        {
+            jsonFriendlyValue = null;
+            return false;
+        }
+    }
 
     /// <inheritdoc />
-    public object? ReadProperty(Control control, string propertyName) =>
-        _serializer.Read(control, propertyName);
+    public bool TryWriteProperty(object element, string name, JsonElement value, out string error)
+    {
+        if (element is not Control control)
+        {
+            error = "Target is not a control.";
+            return false;
+        }
+
+        if (string.IsNullOrEmpty(name))
+        {
+            error = "Property name is required.";
+            return false;
+        }
+
+        var prop = FindClrProperty(control.GetType(), name);
+        if (prop is null)
+        {
+            error = $"Property '{name}' not found on {control.GetType().Name}.";
+            return false;
+        }
+
+        if (!prop.CanWrite || prop.SetMethod is null || !prop.SetMethod.IsPublic)
+        {
+            error = $"Property '{name}' is not writable.";
+            return false;
+        }
+
+        if (prop.GetIndexParameters().Length > 0)
+        {
+            error = $"Property '{name}' is an indexer and cannot be set.";
+            return false;
+        }
+
+        if (!PropertyValueSerializer.TryCoerce(value, prop.PropertyType, out var coerced, out error))
+            return false;
+
+        try
+        {
+            prop.SetValue(control, coerced);
+            error = string.Empty;
+            return true;
+        }
+        catch (TargetInvocationException tie)
+        {
+            error = $"Setting '{name}' threw: {tie.InnerException?.Message ?? tie.Message}";
+            return false;
+        }
+        catch (Exception ex)
+        {
+            error = $"Setting '{name}' failed: {ex.Message}";
+            return false;
+        }
+    }
 
     /// <inheritdoc />
-    public bool WriteProperty(Control control, string propertyName, JsonElement value, out string error) =>
-        _serializer.TryWrite(control, propertyName, value, out error);
+    public object? GetDataContext(object element) => (element as StyledElement)?.DataContext;
+
+    /// <summary>
+    /// Projects an Avalonia framework value to a JSON-friendly form via the neutral
+    /// serializer, supplying the Avalonia-specific element + value-type renderers.
+    /// </summary>
+    private object? Project(object? value) =>
+        _serializer.ToJsonFriendly(value, RenderElement, RenderLeaf);
+
+    private static string? RenderElement(object value) =>
+        value is Control control
+            ? $"{control.GetType().Name}{(string.IsNullOrEmpty(control.Name) ? "" : "#" + control.Name)}"
+            : null;
+
+    private static string? RenderLeaf(object value)
+    {
+        var type = value.GetType();
+        // Known Avalonia structs serialize cleanly via their invariant string form.
+        return type.Namespace?.StartsWith("Avalonia", StringComparison.Ordinal) == true && type.IsValueType
+            ? value.ToString()
+            : null;
+    }
+
+    private static PropertyInfo? FindClrProperty(Type type, string name) =>
+        type.GetProperty(name, BindingFlags.Public | BindingFlags.Instance | BindingFlags.IgnoreCase);
 
     // ----------------------------------------------------------------- render
 
     /// <inheritdoc />
-    public bool TryRenderControlToPng(Control control, int maxDimension, out byte[] png, out string error)
+    public bool TryRenderToPng(object element, int maxDim, out byte[] png, out string error)
+    {
+        // A Window/TopLevel renders as a whole visual; any other control renders its
+        // own subtree (with a cropped-TopLevel fallback). This unifies the v1
+        // TryRenderControlToPng / TryRenderVisualToPng split behind one neutral method.
+        if (element is TopLevel topLevel)
+            return TryRenderVisualToPng(topLevel, maxDim, cropRect: null, out png, out error);
+        if (element is Control control)
+            return TryRenderControlToPng(control, maxDim, out png, out error);
+
+        png = Array.Empty<byte>();
+        error = "Target is not a renderable visual.";
+        return false;
+    }
+
+    private bool TryRenderControlToPng(Control control, int maxDimension, out byte[] png, out string error)
     {
         png = Array.Empty<byte>();
         error = string.Empty;
@@ -164,8 +356,7 @@ public sealed class AvaloniaUiAdapter : IUiAdapter
         }
     }
 
-    /// <inheritdoc />
-    public bool TryRenderVisualToPng(Visual visual, int maxDimension, Rect? cropRect, out byte[] png, out string error)
+    private bool TryRenderVisualToPng(Visual visual, int maxDimension, Rect? cropRect, out byte[] png, out string error)
     {
         png = Array.Empty<byte>();
         error = string.Empty;
@@ -234,8 +425,11 @@ public sealed class AvaloniaUiAdapter : IUiAdapter
     // ------------------------------------------------------------- automation
 
     /// <inheritdoc />
-    public UiAutomationResult InvokeAutomation(Control control, UiAutomationAction action, string? value)
+    public UiAutomationResult InvokeAutomation(object element, UiAutomationAction action, string? value)
     {
+        if (element is not Control control)
+            return UiAutomationResult.Failure("Target is not a control.");
+
         var peer = ControlAutomationPeer.CreatePeerForElement(control);
         if (peer is null)
             return UiAutomationResult.Failure("No automation peer is available for this control.");
@@ -278,7 +472,7 @@ public sealed class AvaloniaUiAdapter : IUiAdapter
 
         if (peer.GetProvider<IExpandCollapseProvider>() is { } ec)
         {
-            var expand = ec.ExpandCollapseState != Avalonia.Automation.ExpandCollapseState.Expanded;
+            var expand = ec.ExpandCollapseState != global::Avalonia.Automation.ExpandCollapseState.Expanded;
             if (expand) ec.Expand(); else ec.Collapse();
             return UiAutomationResult.Success(expand ? "Expand" : "Collapse", ec.ExpandCollapseState.ToString());
         }
@@ -344,24 +538,28 @@ public sealed class AvaloniaUiAdapter : IUiAdapter
     // ----------------------------------------------------------------- focus
 
     /// <inheritdoc />
-    public bool SetFocus(Control control) => control.Focus();
+    public bool SetFocus(object element) => element is Control c && c.Focus();
 
     /// <inheritdoc />
-    public Control? GetFocusedElement(TopLevel topLevel) =>
-        topLevel.FocusManager?.GetFocusedElement() as Control;
+    public object? GetFocusedElement(object topLevel) =>
+        (topLevel as TopLevel)?.FocusManager?.GetFocusedElement() as Control;
 
     // --------------------------------------------------------------- hit-test
 
     /// <inheritdoc />
-    public Control? HitTest(TopLevel topLevel, Point point) =>
-        topLevel.InputHitTest(point) as Control;
+    public object? HitTest(object topLevel, UiPoint point) =>
+        (topLevel as TopLevel)?.InputHitTest(new Point(point.X, point.Y)) as Control;
 
     // ----------------------------------------------------- synthetic input
 
     /// <inheritdoc />
-    public Control? SendPointer(TopLevel topLevel, PointerAction action, Point point)
+    public object? SendPointer(object topLevel, PointerAction action, UiPoint point)
     {
-        var target = SyntheticInput.HitTest(topLevel, point);
+        if (topLevel is not TopLevel tl)
+            return null;
+
+        var p = new Point(point.X, point.Y);
+        var target = SyntheticInput.HitTest(tl, p);
         if (target is null)
             return null;
 
@@ -370,24 +568,24 @@ public sealed class AvaloniaUiAdapter : IUiAdapter
         switch (action)
         {
             case PointerAction.Move:
-                SyntheticInput.RaiseMove(topLevel, target, point);
+                SyntheticInput.RaiseMove(tl, target, p);
                 break;
             case PointerAction.Down:
-                SyntheticInput.RaisePressed(topLevel, target, point, button, clickCount: 1);
+                SyntheticInput.RaisePressed(tl, target, p, button, clickCount: 1);
                 break;
             case PointerAction.Up:
-                SyntheticInput.RaiseReleased(topLevel, target, point, button);
+                SyntheticInput.RaiseReleased(tl, target, p, button);
                 break;
             case PointerAction.Click:
             case PointerAction.RightClick:
-                SyntheticInput.RaisePressed(topLevel, target, point, button, clickCount: 1);
-                SyntheticInput.RaiseReleased(topLevel, target, point, button);
+                SyntheticInput.RaisePressed(tl, target, p, button, clickCount: 1);
+                SyntheticInput.RaiseReleased(tl, target, p, button);
                 break;
             case PointerAction.DoubleClick:
-                SyntheticInput.RaisePressed(topLevel, target, point, button, clickCount: 1);
-                SyntheticInput.RaiseReleased(topLevel, target, point, button);
-                SyntheticInput.RaisePressed(topLevel, target, point, button, clickCount: 2);
-                SyntheticInput.RaiseReleased(topLevel, target, point, button);
+                SyntheticInput.RaisePressed(tl, target, p, button, clickCount: 1);
+                SyntheticInput.RaiseReleased(tl, target, p, button);
+                SyntheticInput.RaisePressed(tl, target, p, button, clickCount: 2);
+                SyntheticInput.RaiseReleased(tl, target, p, button);
                 break;
         }
 
@@ -395,21 +593,25 @@ public sealed class AvaloniaUiAdapter : IUiAdapter
     }
 
     /// <inheritdoc />
-    public Control? SendWheel(TopLevel topLevel, Point point, Vector delta)
+    public object? SendWheel(object topLevel, UiPoint point, UiVector delta)
     {
-        var target = SyntheticInput.HitTest(topLevel, point);
+        if (topLevel is not TopLevel tl)
+            return null;
+
+        var p = new Point(point.X, point.Y);
+        var target = SyntheticInput.HitTest(tl, p);
         if (target is null)
             return null;
-        SyntheticInput.RaiseWheel(topLevel, target, point, delta);
+        SyntheticInput.RaiseWheel(tl, target, p, new Vector(delta.X, delta.Y));
         return target;
     }
 
     /// <inheritdoc />
-    public Control? SendText(Control? target, string text)
+    public object? SendText(object? target, string text)
     {
         (target as InputElement)?.Focus(NavigationMethod.Unspecified, KeyModifiers.None);
 
-        var sink = ResolveInputSink(target);
+        var sink = ResolveInputSink(target as Control);
         if (sink is null)
             return null;
 
@@ -419,8 +621,8 @@ public sealed class AvaloniaUiAdapter : IUiAdapter
 
     /// <inheritdoc />
     public bool SendKeys(
-        Control? target, string chords,
-        out IReadOnlyList<string> sentChords, out Control? sink, out string error)
+        object? target, string chords,
+        out IReadOnlyList<string> sentChords, out object? sink, out string error)
     {
         sentChords = Array.Empty<string>();
         sink = null;
@@ -451,7 +653,7 @@ public sealed class AvaloniaUiAdapter : IUiAdapter
 
         (target as InputElement)?.Focus(NavigationMethod.Unspecified, KeyModifiers.None);
 
-        var element = ResolveInputSink(target);
+        var element = ResolveInputSink(target as Control);
         if (element is null)
         {
             error = "no focused element to receive keys (focus a control via handle/selector first).";
@@ -476,7 +678,7 @@ public sealed class AvaloniaUiAdapter : IUiAdapter
         if (explicitTarget is IInputElement ie)
             return ie;
 
-        foreach (var root in ControlRegistry.EnumerateRoots().OfType<TopLevel>())
+        foreach (var root in EnumerateRootsCore().OfType<TopLevel>())
         {
             var focused = root.FocusManager?.GetFocusedElement();
             if (focused is not null)

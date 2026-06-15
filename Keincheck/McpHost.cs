@@ -1,6 +1,7 @@
 using System.Net;
 using System.Reflection;
 using Avalonia;
+using Keincheck.Avalonia;
 using Keincheck.Core;
 using Keincheck.Core.Tools;
 using Microsoft.AspNetCore.Builder;
@@ -112,11 +113,12 @@ public static class McpHost
                 if (_sink is not null)
                     builder.Services.AddSingleton(_sink);
 
-                // The framework-agnostic UI seam. Tools (Phase B) consume IUiAdapter
-                // instead of calling Avalonia directly; register it now so that
-                // rerouting tool bodies requires no host change.
+                // The framework-agnostic UI seam. Tools consume IUiAdapter +
+                // IUiDispatcher instead of calling Avalonia directly; inject the
+                // Avalonia implementations from Keincheck.Avalonia.
                 builder.Services.AddSingleton<IUiAdapter>(
                     new AvaloniaUiAdapter(_serializer, _sink, _opts.MaxScreenshotDimension));
+                builder.Services.AddSingleton<IUiDispatcher>(new AvaloniaUiDispatcher());
 
                 // The MCP server + HTTP/SSE transport + tools. Tools now live in the
                 // CORE assembly (Keincheck.Core.Tools.*), so discovery targets it.

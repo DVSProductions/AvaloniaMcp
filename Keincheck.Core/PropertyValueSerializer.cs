@@ -2,24 +2,24 @@ using System.ComponentModel;
 using System.Globalization;
 using System.Reflection;
 using System.Text.Json;
-using Avalonia;
-using Avalonia.Controls;
 
 namespace Keincheck.Core;
 
 /// <summary>
-/// Converts control property values to/from JSON-friendly representations.
-/// Reading produces a value safe to embed in an MCP JSON result; writing
-/// coerces a <see cref="JsonElement"/> back onto a property using
-/// <see cref="TypeDescriptor"/> converters (so e.g. <c>"10,5,10,5"</c> becomes
-/// a <see cref="Thickness"/>).
+/// Framework-neutral JSON projection helpers shared by the adapters. Reading reduces
+/// an arbitrary value to a JSON-friendly representation (primitive, string, or a small
+/// depth-limited / cycle-safe dictionary/array); writing coercion is a generic,
+/// reflection-driven <see cref="JsonElement"/> → CLR converter (nullable/enum/numeric/
+/// <see cref="TypeConverter"/>/static <c>Parse</c>). The adapter owns all
+/// framework-type knowledge (which CLR property to read, how to render a framework
+/// element or value-type) and delegates only the neutral reduction here.
 /// </summary>
 public sealed class PropertyValueSerializer
 {
     private readonly int _maxDepth;
 
     /// <param name="maxDepth">
-    /// Maximum object graph depth when reading complex values. Defaults to a
+    /// Maximum object graph depth when reducing complex values. Defaults to a
     /// conservative 8; the host passes <see cref="McpServerOptions.MaxSerializationDepth"/>.
     /// </param>
     public PropertyValueSerializer(int maxDepth = 8)
@@ -27,102 +27,92 @@ public sealed class PropertyValueSerializer
         _maxDepth = Math.Max(1, maxDepth);
     }
 
-    /// <summary>
-    /// Reads the value of an <see cref="AvaloniaProperty"/> on a control and
-    /// returns a JSON-serializable representation (primitive, string, or a
-    /// small dictionary/array for complex values).
-    /// </summary>
-    public object? Read(Control control, AvaloniaProperty property)
-    {
-        ArgumentNullException.ThrowIfNull(control);
-        ArgumentNullException.ThrowIfNull(property);
-        return ToJsonFriendly(control.GetValue(property), _maxDepth);
-    }
+    /// <summary>The configured maximum reduction depth.</summary>
+    public int MaxDepth => _maxDepth;
 
     /// <summary>
-    /// Reads a CLR property by name and returns a JSON-serializable value.
-    /// Returns <c>null</c> if the property does not exist or is not readable.
+    /// Reduces <paramref name="value"/> to a JSON-serializable representation using the
+    /// configured depth. The optional <paramref name="renderElement"/> hook lets the
+    /// adapter project a framework element it recognizes (e.g. a control to
+    /// <c>"Type#Name"</c>) before the generic reduction; the optional
+    /// <paramref name="renderLeaf"/> hook lets it short-circuit framework value-types
+    /// (e.g. Avalonia structs) to their string form.
     /// </summary>
-    public object? Read(Control control, string propertyName)
-    {
-        ArgumentNullException.ThrowIfNull(control);
-        ArgumentException.ThrowIfNullOrEmpty(propertyName);
+    public object? ToJsonFriendly(
+        object? value,
+        Func<object, string?>? renderElement = null,
+        Func<object, string?>? renderLeaf = null) =>
+        Reduce(value, _maxDepth, renderElement, renderLeaf);
 
-        var prop = FindClrProperty(control.GetType(), propertyName);
-        if (prop is null || !prop.CanRead || prop.GetIndexParameters().Length > 0)
+    private static object? Reduce(
+        object? value,
+        int depth,
+        Func<object, string?>? renderElement,
+        Func<object, string?>? renderLeaf)
+    {
+        if (value is null)
             return null;
 
-        try
+        switch (value)
         {
-            return ToJsonFriendly(prop.GetValue(control), _maxDepth);
-        }
-        catch
-        {
-            return null;
-        }
-    }
-
-    /// <summary>
-    /// Coerces <paramref name="value"/> onto the named CLR property of
-    /// <paramref name="control"/>. Returns <c>true</c> on success; on failure
-    /// returns <c>false</c> with a human-readable reason in
-    /// <paramref name="error"/>. Never throws for ordinary failures.
-    /// </summary>
-    public bool TryWrite(Control control, string propertyName, JsonElement value, out string error)
-    {
-        ArgumentNullException.ThrowIfNull(control);
-
-        if (string.IsNullOrEmpty(propertyName))
-        {
-            error = "Property name is required.";
-            return false;
+            case string:
+            case bool:
+            case byte or sbyte or short or ushort or int or uint or long or ulong:
+            case float or double or decimal:
+                return value;
         }
 
-        var prop = FindClrProperty(control.GetType(), propertyName);
-        if (prop is null)
+        var type = value.GetType();
+
+        if (type.IsEnum)
+            return value.ToString();
+
+        // Adapter-owned element projection (e.g. a control → "Type#Name").
+        if (renderElement is not null)
         {
-            error = $"Property '{propertyName}' not found on {control.GetType().Name}.";
-            return false;
+            var projected = renderElement(value);
+            if (projected is not null)
+                return projected;
         }
 
-        if (!prop.CanWrite || prop.SetMethod is null || !prop.SetMethod.IsPublic)
+        if (depth <= 0)
+            return value.ToString();
+
+        // Adapter-owned leaf projection (e.g. framework value-structs → invariant string).
+        if (renderLeaf is not null)
         {
-            error = $"Property '{propertyName}' is not writable.";
-            return false;
+            var leaf = renderLeaf(value);
+            if (leaf is not null)
+                return leaf;
         }
 
-        if (prop.GetIndexParameters().Length > 0)
+        if (value is System.Collections.IEnumerable enumerable and not string)
         {
-            error = $"Property '{propertyName}' is an indexer and cannot be set.";
-            return false;
+            var items = new List<object?>();
+            var count = 0;
+            foreach (var item in enumerable)
+            {
+                if (count++ >= 50) // cap collection size in output
+                {
+                    items.Add("…(truncated)");
+                    break;
+                }
+                items.Add(Reduce(item, depth - 1, renderElement, renderLeaf));
+            }
+            return items;
         }
 
-        if (!TryCoerce(value, prop.PropertyType, out var coerced, out error))
-            return false;
-
-        try
-        {
-            prop.SetValue(control, coerced);
-            error = string.Empty;
-            return true;
-        }
-        catch (TargetInvocationException tie)
-        {
-            error = $"Setting '{propertyName}' threw: {tie.InnerException?.Message ?? tie.Message}";
-            return false;
-        }
-        catch (Exception ex)
-        {
-            error = $"Setting '{propertyName}' failed: {ex.Message}";
-            return false;
-        }
+        // Fall back to the type's string representation; ToString() is the safest
+        // JSON-friendly projection for opaque reference types.
+        return value.ToString();
     }
 
     /// <summary>
     /// Attempts to coerce a <see cref="JsonElement"/> into <paramref name="targetType"/>.
     /// Honors nullable targets, enums, primitives, and any type with a
-    /// <see cref="TypeConverter"/> capable of parsing a string (e.g. Thickness,
-    /// Brush, Color, GridLength).
+    /// <see cref="TypeConverter"/> or a static <c>Parse(string)</c> capable of parsing a
+    /// string (e.g. Thickness, Brush, Color, GridLength). Generic and framework-neutral —
+    /// the adapter passes its own property types in.
     /// </summary>
     public static bool TryCoerce(JsonElement value, Type targetType, out object? result, out string error)
     {
@@ -191,7 +181,7 @@ public sealed class PropertyValueSerializer
                 }
             }
 
-            // Avalonia value types (Thickness, Color, GridLength, Point, CornerRadius,
+            // Framework value types (Thickness, Color, GridLength, Point, CornerRadius,
             // Size, etc.) expose a static Parse(string) — and sometimes
             // Parse(string, IFormatProvider) — rather than a ComponentModel converter.
             if (text is not null && TryStaticParse(underlying, text, out result))
@@ -215,10 +205,9 @@ public sealed class PropertyValueSerializer
     }
 
     /// <summary>
-    /// Invokes a public static <c>Parse(string)</c> or
-    /// <c>Parse(string, IFormatProvider)</c> on <paramref name="targetType"/> if
-    /// one exists. Covers Avalonia structs (Thickness, Color, GridLength, …) that
-    /// parse from their invariant string form.
+    /// Invokes a public static <c>Parse(string)</c> or <c>Parse(string, IFormatProvider)</c>
+    /// on <paramref name="targetType"/> if one exists. Covers framework structs
+    /// (Thickness, Color, GridLength, …) that parse from their invariant string form.
     /// </summary>
     private static bool TryStaticParse(Type targetType, string text, out object? result)
     {
@@ -265,67 +254,10 @@ public sealed class PropertyValueSerializer
         return false;
     }
 
-    private static PropertyInfo? FindClrProperty(Type type, string name) =>
-        type.GetProperty(name, BindingFlags.Public | BindingFlags.Instance | BindingFlags.IgnoreCase);
-
     private static bool IsNumeric(Type t) =>
         t == typeof(byte) || t == typeof(sbyte) ||
         t == typeof(short) || t == typeof(ushort) ||
         t == typeof(int) || t == typeof(uint) ||
         t == typeof(long) || t == typeof(ulong) ||
         t == typeof(float) || t == typeof(double) || t == typeof(decimal);
-
-    /// <summary>
-    /// Reduces an arbitrary value to something <see cref="JsonSerializer"/> can
-    /// emit without reflection surprises or cycles.
-    /// </summary>
-    private object? ToJsonFriendly(object? value, int depth)
-    {
-        if (value is null)
-            return null;
-
-        switch (value)
-        {
-            case string:
-            case bool:
-            case byte or sbyte or short or ushort or int or uint or long or ulong:
-            case float or double or decimal:
-                return value;
-        }
-
-        var type = value.GetType();
-
-        if (type.IsEnum)
-            return value.ToString();
-
-        if (value is Control control)
-            return $"{control.GetType().Name}{(string.IsNullOrEmpty(control.Name) ? "" : "#" + control.Name)}";
-
-        if (depth <= 0)
-            return value.ToString();
-
-        // Known Avalonia structs serialize cleanly via their invariant string form.
-        if (type.Namespace?.StartsWith("Avalonia", StringComparison.Ordinal) == true && type.IsValueType)
-            return value.ToString();
-
-        if (value is System.Collections.IEnumerable enumerable and not string)
-        {
-            var items = new List<object?>();
-            var count = 0;
-            foreach (var item in enumerable)
-            {
-                if (count++ >= 50) // cap collection size in output
-                {
-                    items.Add("…(truncated)");
-                    break;
-                }
-                items.Add(ToJsonFriendly(item, depth - 1));
-            }
-            return items;
-        }
-
-        // Fall back to the type's string representation; ToString() is the
-        // safest JSON-friendly projection for opaque reference types.
-        return value.ToString();
-    }
 }

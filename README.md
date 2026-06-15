@@ -11,12 +11,16 @@ your running Avalonia 12 UI — list windows, walk the visual/logical tree, read
 write control properties, invoke controls through UI Automation, send synthetic input,
 capture screenshots, and read binding errors.
 
+**Supported UI frameworks:** Avalonia 12 today; WPF in progress. The introspection engine
+is framework-free and reaches the UI through a single neutral seam (`IUiAdapter`), so new
+toolkits plug in as adapter packages without touching the engine.
+
 Two deployment models share one introspection engine:
 
 | | **Broker** (recommended) | **Embedded** |
 |---|---|---|
 | Server | A standalone **Hub** daemon — one MCP server for many apps | One MCP server **inside** your app |
-| Your app pulls in | `Keincheck.Client` (named-pipe, **no ASP.NET**) | `Keincheck` (Kestrel in-process) |
+| Your app pulls in | an adapter pkg, e.g. `Keincheck.Avalonia` (named-pipe, **no ASP.NET**) | `Keincheck` (Kestrel in-process) |
 | Transport to the AI | stdio shim → hub (auto-starts the hub) | loopback HTTP `http://127.0.0.1:3001` |
 | Extras | launch/restart apps, multi-app routing, tray + audit + read-only toggle | none — zero infrastructure |
 | Use when | you want a clean, reusable, multi-app setup | you want a single app wired in one line |
@@ -27,7 +31,7 @@ Two deployment models share one introspection engine:
    (a self-updating [Velopack](https://velopack.io) app).
 2. **Add the client** to your Avalonia app and give it a stable id:
    ```csharp
-   using Keincheck.Client;
+   using Keincheck.Avalonia;   // Avalonia adapter package — supplies UseMcpClient
 
    AppBuilder.Configure<App>()
        .UsePlatformDetect()
@@ -68,13 +72,14 @@ Point any MCP-capable client at `http://127.0.0.1:3001`.
    └────┬────────────────────────┬───────────────────┘
         │ named pipe             │ named pipe
    ┌────▼──────────┐        ┌────▼──────────┐
-   │ Your app      │        │ Another app   │   apps embed
-   │ +UseMcpClient │        │ +UseMcpClient │   Keincheck.Client
+   │ Your app      │        │ Another app   │   apps embed an adapter pkg
+   │ +UseMcpClient │        │ +UseMcpClient │   (e.g. Keincheck.Avalonia)
    └───────────────┘        └───────────────┘
 ```
 
-Tools execute **inside each app** (where Avalonia lives); the hub is a framework-agnostic
-multiplexer that advertises the active client's tools and forwards calls over the pipe.
+Tools execute **inside each app** (where the UI toolkit lives, reached through that app's
+`IUiAdapter`); the hub is a framework-agnostic multiplexer that advertises the active
+client's tools and forwards calls over the pipe.
 
 ## Tools
 
@@ -95,13 +100,21 @@ multiplexer that advertises the active client's tools and forwards calls over th
 | Project | TFM | Role |
 |---|---|---|
 | `Keincheck.Protocol` | net8.0 | Zero-dependency wire: named-pipe transport, chunked framing, message DTOs |
-| `Keincheck.Core` | net8.0 | Introspection engine + framework-agnostic `IUiAdapter` seam + the 22 tools |
-| `Keincheck.Client` | net8.0 | Thin client (`UseMcpClient`) — named-pipe, **no ASP.NET** |
+| `Keincheck.Core` | net8.0 | **Framework-free** introspection engine: registry, selectors, serializer, the 22 tools, and the neutral `IUiAdapter` / `IUiDispatcher` seam (no UI-toolkit reference) |
+| `Keincheck.Avalonia` | net8.0 | Avalonia 12 adapter: `AvaloniaUiAdapter` + `AvaloniaUiDispatcher` behind the seam, plus the Avalonia `UseMcpClient` |
+| `Keincheck.Wpf` | net8.0-windows | WPF adapter — **in progress** (scaffolded `WpfUiAdapter`, real `WpfUiDispatcher`, `UseKeincheckClient`) |
+| `Keincheck.Client` | net8.0 | **Framework-free** broker client (`BrokerClientHost.Start`) — named-pipe, **no ASP.NET** |
 | `Keincheck.Hub` | net10.0 | The broker daemon: pipe server, registry, launcher/restart, MCP proxy, tray (Velopack) |
 | `Keincheck.Connect` | net8.0 | The stdio shim an MCP client spawns |
-| `Keincheck` | net8.0 | Embedded all-in-one server (`UseMcpServer`) |
+| `Keincheck` | net8.0 | Embedded all-in-one server (`UseMcpServer`) — Core + the Avalonia adapter |
 | `samples/Keincheck.Demo` | net10.0 | Demo Avalonia app wired as a client |
 | `tests/*` | net8.0 / net10.0 | xUnit + Avalonia.Headless |
+
+The engine is **framework-free**: `Keincheck.Core` knows nothing about any UI toolkit and
+talks to the live UI only through the neutral `IUiAdapter` / `IUiDispatcher` seam. A new
+framework plugs in by implementing that seam in its own adapter package (as
+`Keincheck.Avalonia` does for Avalonia and `Keincheck.Wpf` is doing for WPF) — no engine
+changes required.
 
 Libraries target **net8.0** for broad compatibility; the desktop/test apps target
 **net10.0** with `<RollForward>Major</RollForward>`. Design notes live in [`docs/`](docs/).

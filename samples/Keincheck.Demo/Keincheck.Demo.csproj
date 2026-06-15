@@ -21,9 +21,10 @@
 
   <!-- The thin broker client (no embedded Kestrel/ASP.NET): the app talks to the
        standalone hub over a named pipe, so the ASP.NET Core shared framework is no
-       longer needed here. -->
+       longer needed here. Keincheck.Avalonia provides the Avalonia UseMcpClient glue
+       and pulls in Keincheck.Client transitively. -->
   <ItemGroup>
-    <ProjectReference Include="..\..\Keincheck.Client\Keincheck.Client.csproj" />
+    <ProjectReference Include="..\..\Keincheck.Avalonia\Keincheck.Avalonia.csproj" />
   </ItemGroup>
 
 </Project>

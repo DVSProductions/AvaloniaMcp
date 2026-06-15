@@ -53,33 +53,29 @@ public sealed class ClientToolHost : IDisposable
     public bool IsToolReadOnly(string toolName) => _readOnlyTools.Contains(toolName);
 
     /// <summary>
-    /// Builds a tool host over the given Avalonia application + Core spine. Registers
-    /// the same DI singletons <c>McpHost</c> does (Application, options, registry,
-    /// serializer, optional binding-error sink, and the <see cref="IUiAdapter"/>),
-    /// then materializes every <c>[McpServerTool]</c> in the Core tools assembly.
+    /// Builds a tool host over an injected, framework-specific <see cref="IUiAdapter"/>
+    /// + <see cref="IUiDispatcher"/> and the Core spine. Registers the DI singletons the
+    /// tools consume (options, registry, the adapter, the dispatcher), then materializes
+    /// every <c>[McpServerTool]</c> in the Core tools assembly. No UI-toolkit type is
+    /// referenced here — the caller (framework glue) supplies the adapter/dispatcher.
     /// </summary>
     public static ClientToolHost Build(
-        Avalonia.Application app,
+        IUiAdapter adapter,
+        IUiDispatcher dispatcher,
         Keincheck.Core.McpServerOptions options,
         params Assembly[] additionalToolAssemblies)
     {
-        ArgumentNullException.ThrowIfNull(app);
+        ArgumentNullException.ThrowIfNull(adapter);
+        ArgumentNullException.ThrowIfNull(dispatcher);
         ArgumentNullException.ThrowIfNull(options);
 
         var registry = new ControlRegistry();
-        var serializer = new PropertyValueSerializer(options.MaxSerializationDepth);
-        BindingErrorSink? sink = options.CaptureBindingErrors
-            ? BindingErrorSink.Current ?? BindingErrorSink.Install(options.BindingErrorBufferSize)
-            : null;
 
         var sc = new ServiceCollection();
-        sc.AddSingleton(app);
         sc.AddSingleton(options);
         sc.AddSingleton(registry);
-        sc.AddSingleton(serializer);
-        if (sink is not null)
-            sc.AddSingleton(sink);
-        sc.AddSingleton<IUiAdapter>(new AvaloniaUiAdapter(serializer, sink, options.MaxScreenshotDimension));
+        sc.AddSingleton(adapter);
+        sc.AddSingleton(dispatcher);
 
         var provider = sc.BuildServiceProvider();
 

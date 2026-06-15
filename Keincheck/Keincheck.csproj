@@ -8,7 +8,7 @@
     <!-- NuGet package metadata -->
     <PackageId>Keincheck</PackageId>
     <IsPackable>true</IsPackable>
-    <Version>0.1.0</Version>
+    <Version>0.2.0</Version>
     <Authors>Keincheck</Authors>
     <Description>Embeds a Model Context Protocol (MCP) server into any Avalonia 12 app so an AI can see and drive the live UI.</Description>
     <PackageTags>avalonia;mcp;ai;automation;ui</PackageTags>
@@ -25,13 +25,16 @@
   </ItemGroup>
 
   <ItemGroup>
-    <!-- Avalonia + ModelContextProtocol (core) flow transitively from Core; the
-         host adds only the ASP.NET Core MCP transport for in-process Kestrel. -->
+    <!-- ModelContextProtocol (core) flows transitively from Core; the host adds only
+         the ASP.NET Core MCP transport for in-process Kestrel. -->
     <PackageReference Include="ModelContextProtocol.AspNetCore" Version="1.4.0" />
   </ItemGroup>
 
   <ItemGroup>
+    <!-- The embedded host injects the Avalonia adapter + dispatcher into the
+         framework-free Core tool set. Avalonia + Core flow transitively from here. -->
     <ProjectReference Include="..\Keincheck.Core\Keincheck.Core.csproj" />
+    <ProjectReference Include="..\Keincheck.Avalonia\Keincheck.Avalonia.csproj" />
   </ItemGroup>
 
 </Project>

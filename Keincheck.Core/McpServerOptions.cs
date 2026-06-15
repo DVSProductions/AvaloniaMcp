@@ -2,7 +2,7 @@ namespace Keincheck.Core;
 
 /// <summary>
 /// Configuration for the embedded MCP server. All values have sane defaults;
-/// override them via <see cref="AppBuilderExtensions.UseMcpServer"/>.
+/// override them via the host's <c>UseMcpServer</c> extension.
 /// </summary>
 /// <remarks>
 /// This is the Keincheck options type. It is intentionally named the same as

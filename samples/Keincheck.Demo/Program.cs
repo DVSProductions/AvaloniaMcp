@@ -1,5 +1,5 @@
 using Avalonia;
-using Keincheck.Client;
+using Keincheck.Avalonia;
 
 namespace Keincheck.Demo;
 

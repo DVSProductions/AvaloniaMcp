@@ -8,22 +8,22 @@
     <!-- NuGet package metadata -->
     <PackageId>Keincheck.Core</PackageId>
     <IsPackable>true</IsPackable>
-    <Version>0.1.0</Version>
+    <Version>0.2.0</Version>
     <Authors>Keincheck</Authors>
-    <Description>The framework-agnostic UI introspection engine for Keincheck: control registry, CSS-ish selectors, property serialization, the MCP tool set, and the IUiAdapter seam with an Avalonia 12 implementation.</Description>
+    <Description>The framework-FREE UI introspection engine for Keincheck: control registry, CSS-ish selectors, property serialization, the MCP tool set, and the neutral IUiAdapter / IUiDispatcher seam. Framework adapters (Avalonia, WPF) live in sibling packages.</Description>
     <PackageTags>avalonia;mcp;ai;automation;ui;introspection</PackageTags>
     <IncludeBuildOutput>true</IncludeBuildOutput>
   </PropertyGroup>
 
   <!--
-    Core references Avalonia (the engine + the AvaloniaUiAdapter implement over it)
-    and ModelContextProtocol CORE ONLY (for the [McpServerTool] attributes and
-    ContentBlock/Image types used to build tool schemas). It must NOT reference
-    ModelContextProtocol.AspNetCore or the ASP.NET Core shared framework — hosting
-    stays in the Keincheck assembly.
+    Core is FRAMEWORK-FREE. It references ONLY ModelContextProtocol CORE (for the
+    [McpServerTool] attributes and ContentBlock/Image types used to build tool
+    schemas) plus Keincheck.Protocol. It must NOT reference Avalonia, WPF, or
+    ModelContextProtocol.AspNetCore — UI toolkit knowledge lives in the framework
+    adapter packages (Keincheck.Avalonia / Keincheck.Wpf) and hosting stays in the
+    Keincheck assembly.
   -->
   <ItemGroup>
-    <PackageReference Include="Avalonia" Version="12.0.4" />
     <PackageReference Include="ModelContextProtocol" Version="1.4.0" />
   </ItemGroup>
 

@@ -1,19 +1,21 @@
 using System.Collections.Concurrent;
-using Avalonia;
-using Avalonia.Controls;
-using Avalonia.Controls.ApplicationLifetimes;
-using Avalonia.LogicalTree;
-using Avalonia.VisualTree;
 
 namespace Keincheck.Core;
 
 /// <summary>
-/// Central directory that hands out stable string handles for controls and
-/// resolves controls from handles or a CSS-ish selector. A singleton in the
-/// MCP host's DI container. All weak references — assigning a handle never
-/// keeps a control alive.
+/// Central directory that hands out stable string handles for UI elements and
+/// resolves elements from handles or a CSS-ish selector. A singleton in the MCP
+/// host's DI container. All weak references — assigning a handle never keeps an
+/// element alive.
 /// </summary>
 /// <remarks>
+/// <para>
+/// Elements are opaque <see cref="object"/> handles supplied by the active
+/// <see cref="IUiAdapter"/>; the registry never inspects their concrete framework
+/// type. Selector resolution (<see cref="Query"/>) is driven <i>through</i> the
+/// adapter — root enumeration, child walks, and metadata all come from
+/// <see cref="IUiAdapter"/>, so the registry stays framework-free.
+/// </para>
 /// Selector grammar (whitespace-separated combinator chain):
 /// <list type="bullet">
 ///   <item><c>Type</c> — matches by control type name (e.g. <c>Button</c>). Matches exact runtime type name or any base type name.</item>
@@ -27,40 +29,40 @@ namespace Keincheck.Core;
 /// </remarks>
 public sealed class ControlRegistry
 {
-    private readonly ConcurrentDictionary<string, WeakReference<Control>> _byId = new();
-    private readonly ConditionalWeakTableShim _byControl = new();
+    private readonly ConcurrentDictionary<string, WeakReference<object>> _byId = new();
+    private readonly ConditionalWeakTableShim _byElement = new();
     private long _counter;
 
     /// <summary>
-    /// Assigns (or returns the existing) stable handle for <paramref name="control"/>.
-    /// Idempotent: the same control always maps to the same id for its lifetime.
+    /// Assigns (or returns the existing) stable handle for <paramref name="element"/>.
+    /// Idempotent: the same element always maps to the same id for its lifetime.
     /// </summary>
-    public string Assign(Control control)
+    public string Assign(object element)
     {
-        ArgumentNullException.ThrowIfNull(control);
+        ArgumentNullException.ThrowIfNull(element);
 
-        if (_byControl.TryGet(control, out var existing) &&
+        if (_byElement.TryGet(element, out var existing) &&
             _byId.TryGetValue(existing, out var wr) &&
             wr.TryGetTarget(out var live) &&
-            ReferenceEquals(live, control))
+            ReferenceEquals(live, element))
         {
             return existing;
         }
 
         var id = "ctl-" + Interlocked.Increment(ref _counter).ToString("x");
-        _byId[id] = new WeakReference<Control>(control);
-        _byControl.Set(control, id);
+        _byId[id] = new WeakReference<object>(element);
+        _byElement.Set(element, id);
         return id;
     }
 
     /// <summary>
-    /// Resolves a previously assigned handle. Returns <c>false</c> (and a null
-    /// out) if the id is unknown or the control has been collected/closed.
-    /// Prunes dead entries on miss.
+    /// Resolves a previously assigned handle. Returns <c>false</c> (and a null out) if
+    /// the id is unknown or the element has been collected/closed. Prunes dead entries
+    /// on miss.
     /// </summary>
-    public bool TryResolve(string id, out Control? control)
+    public bool TryResolve(string id, out object? element)
     {
-        control = null;
+        element = null;
         if (string.IsNullOrEmpty(id))
             return false;
 
@@ -68,7 +70,7 @@ public sealed class ControlRegistry
         {
             if (wr.TryGetTarget(out var live))
             {
-                control = live;
+                element = live;
                 return true;
             }
 
@@ -80,16 +82,18 @@ public sealed class ControlRegistry
     }
 
     /// <summary>
-    /// Evaluates a CSS-ish <paramref name="selector"/> over the logical+visual
-    /// tree. When <paramref name="scope"/> is null, every open <c>TopLevel</c>
-    /// in the current application is searched. Results are de-duplicated and
-    /// returned in document order per root. Returns an empty list for a null or
-    /// blank selector (never throws on a malformed selector — returns empty).
+    /// Evaluates a CSS-ish <paramref name="selector"/> over the logical+visual tree,
+    /// driven through <paramref name="ui"/>. When <paramref name="scope"/> is null,
+    /// every open top-level in the current application is searched. Results are
+    /// de-duplicated and returned in document order per root. Returns an empty list for
+    /// a null or blank selector (never throws on a malformed selector — returns empty).
     /// </summary>
-    public IReadOnlyList<Control> Query(string selector, TopLevel? scope = null)
+    public IReadOnlyList<object> Query(string selector, IUiAdapter ui, object? scope = null)
     {
+        ArgumentNullException.ThrowIfNull(ui);
+
         if (string.IsNullOrWhiteSpace(selector))
-            return Array.Empty<Control>();
+            return Array.Empty<object>();
 
         SelectorChain chain;
         try
@@ -98,19 +102,19 @@ public sealed class ControlRegistry
         }
         catch (FormatException)
         {
-            return Array.Empty<Control>();
+            return Array.Empty<object>();
         }
 
         var roots = scope is not null
-            ? new[] { (Visual)scope }
-            : EnumerateRoots().ToArray();
+            ? new[] { scope }
+            : ui.EnumerateRoots().ToArray();
 
-        var results = new List<Control>();
-        var seen = new HashSet<Control>(ReferenceEqualityComparer.Instance);
+        var results = new List<object>();
+        var seen = new HashSet<object>(ReferenceEqualityComparer.Instance);
 
         foreach (var root in roots)
         {
-            foreach (var match in chain.Match(root))
+            foreach (var match in chain.Match(root, ui))
             {
                 if (seen.Add(match))
                     results.Add(match);
@@ -121,45 +125,20 @@ public sealed class ControlRegistry
     }
 
     /// <summary>
-    /// All open top-level visuals (windows, popups) of the current application.
-    /// Safe to call only on the UI thread.
-    /// </summary>
-    public static IEnumerable<Visual> EnumerateRoots()
-    {
-        var app = Application.Current;
-        if (app is null)
-            yield break;
-
-        switch (app.ApplicationLifetime)
-        {
-            case IClassicDesktopStyleApplicationLifetime desktop:
-                foreach (var w in desktop.Windows)
-                    yield return w;
-                break;
-            case ISingleViewApplicationLifetime single when single.MainView is { } mv:
-                if (TopLevel.GetTopLevel(mv) is { } tl)
-                    yield return tl;
-                else
-                    yield return mv;
-                break;
-        }
-    }
-
-    /// <summary>
-    /// Lightweight weak control-&gt;id map. We avoid a real
+    /// Lightweight weak element-&gt;id map. We avoid a real
     /// <see cref="System.Runtime.CompilerServices.ConditionalWeakTable{TKey,TValue}"/>
     /// generic-over-string boxing concern by storing the id string directly.
     /// </summary>
     private sealed class ConditionalWeakTableShim
     {
-        private readonly System.Runtime.CompilerServices.ConditionalWeakTable<Control, string> _table = new();
+        private readonly System.Runtime.CompilerServices.ConditionalWeakTable<object, string> _table = new();
 
-        public bool TryGet(Control c, out string id) => _table.TryGetValue(c, out id!);
+        public bool TryGet(object e, out string id) => _table.TryGetValue(e, out id!);
 
-        public void Set(Control c, string id)
+        public void Set(object e, string id)
         {
-            _table.Remove(c);
-            _table.Add(c, id);
+            _table.Remove(e);
+            _table.Add(e, id);
         }
     }
 }

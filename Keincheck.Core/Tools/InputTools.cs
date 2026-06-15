@@ -1,32 +1,29 @@
 using System.ComponentModel;
-using Avalonia;
-using Avalonia.Controls;
 using ModelContextProtocol.Server;
 
 namespace Keincheck.Core.Tools;
 
 /// <summary>
 /// Synthetic-input fallback for custom-drawn controls that expose no UI Automation
-/// peer. Where the automation-based tools cannot reach a control (e.g. a control
-/// that draws itself and only handles raw pointer/key events), these tools drive
-/// genuine Avalonia routed input events through <see cref="IUiAdapter"/>
+/// peer. Where the automation-based tools cannot reach a control (e.g. a control that
+/// draws itself and only handles raw pointer/key events), these tools drive genuine
+/// routed input events through <see cref="IUiAdapter"/>
 /// (<see cref="IUiAdapter.SendPointer"/>, <see cref="IUiAdapter.SendWheel"/>,
 /// <see cref="IUiAdapter.SendText"/>, <see cref="IUiAdapter.SendKeys"/>) so the tool
 /// layer never fabricates events itself.
 /// </summary>
 /// <remarks>
 /// <para>
-/// Addressing model: pointer tools work in the coordinate space of a target
-/// <see cref="TopLevel"/> (a window or single-view root). You may point at a
-/// specific window by control handle/selector (its containing top level is used)
-/// or, when omitted, the first open top level is targeted. The given
-/// <c>x</c>/<c>y</c> are interpreted as positions within that top level; the actual
-/// element under the cursor is found by the adapter and the event is raised on it so
-/// it bubbles/tunnels normally.
+/// Addressing model: pointer tools work in the coordinate space of a target top-level
+/// (a window or single-view root). You may point at a specific window by control
+/// handle/selector (its containing top level is used) or, when omitted, the first open
+/// top level is targeted. The given <c>x</c>/<c>y</c> are interpreted as positions
+/// within that top level; the actual element under the cursor is found by the adapter
+/// and the event is raised on it so it bubbles/tunnels normally.
 /// </para>
 /// <para>
 /// Every method marshals all visual-tree access onto the UI thread via
-/// <see cref="UiDispatch"/> and returns a structured, JSON-serializable result.
+/// <see cref="IUiDispatcher"/> and returns a structured, JSON-serializable result.
 /// Bad handles/selectors/coordinates never throw — they return
 /// <c>{ ok = false, error = "…" }</c>.
 /// </para>
@@ -36,8 +33,8 @@ public static class InputTools
 {
     /// <summary>
     /// Synthesizes a pointer action (move / down / up / click / double / right) at a
-    /// point inside a top level, raising real Avalonia pointer events on the element
-    /// hit-tested at that point.
+    /// point inside a top level, raising real pointer events on the element hit-tested
+    /// at that point.
     /// </summary>
     [McpServerTool, Description(
         "Synthetic pointer input at window coordinates for custom-drawn (peer-less) controls. " +
@@ -47,6 +44,7 @@ public static class InputTools
     public static async Task<object> Pointer(
         ControlRegistry registry,
         IUiAdapter ui,
+        IUiDispatcher dispatcher,
         [Description("Action: move, down, up, click (down+up), double (double-click), or right (right-click).")] string action,
         [Description("X coordinate within the target top level (device-independent pixels).")] double x,
         [Description("Y coordinate within the target top level (device-independent pixels).")] double y,
@@ -57,12 +55,12 @@ public static class InputTools
         if (!TryMapPointerAction(act, out var pointerAction))
             return Fail($"unknown action '{action}'. expected move|down|up|click|double|right.");
 
-        return await UiDispatch.Run(() =>
+        return await dispatcher.Run(() =>
         {
             if (!TryResolveTopLevel(registry, ui, handle, selector, out var topLevel, out var error))
                 return Fail(error);
 
-            var target = ui.SendPointer(topLevel, pointerAction, new Point(x, y));
+            var target = ui.SendPointer(topLevel, pointerAction, new UiPoint(x, y));
             if (target is null)
                 return Fail($"no control hit-tested at ({x}, {y}) in the target top level.");
 
@@ -89,11 +87,12 @@ public static class InputTools
     public static Task<object> ClickAt(
         ControlRegistry registry,
         IUiAdapter ui,
+        IUiDispatcher dispatcher,
         [Description("X coordinate within the target top level.")] double x,
         [Description("Y coordinate within the target top level.")] double y,
         [Description("Optional control handle whose window should receive the click.")] string? handle = null,
         [Description("Optional selector (first match) to pick the target window when no handle is given.")] string? selector = null)
-        => Pointer(registry, ui, "click", x, y, handle, selector);
+        => Pointer(registry, ui, dispatcher, "click", x, y, handle, selector);
 
     /// <summary>
     /// Synthesizes a mouse-wheel scroll at a point by raising a pointer-wheel event on
@@ -106,6 +105,7 @@ public static class InputTools
     public static async Task<object> ScrollAt(
         ControlRegistry registry,
         IUiAdapter ui,
+        IUiDispatcher dispatcher,
         [Description("X coordinate within the target top level.")] double x,
         [Description("Y coordinate within the target top level.")] double y,
         [Description("Horizontal wheel delta (notches). Usually 0.")] double deltaX = 0,
@@ -113,12 +113,12 @@ public static class InputTools
         [Description("Optional control handle whose window should receive the scroll.")] string? handle = null,
         [Description("Optional selector (first match) to pick the target window when no handle is given.")] string? selector = null)
     {
-        return await UiDispatch.Run(() =>
+        return await dispatcher.Run(() =>
         {
             if (!TryResolveTopLevel(registry, ui, handle, selector, out var topLevel, out var error))
                 return Fail(error);
 
-            var target = ui.SendWheel(topLevel, new Point(x, y), new Vector(deltaX, deltaY));
+            var target = ui.SendWheel(topLevel, new UiPoint(x, y), new UiVector(deltaX, deltaY));
             if (target is null)
                 return Fail($"no control hit-tested at ({x}, {y}) in the target top level.");
 
@@ -145,6 +145,7 @@ public static class InputTools
     public static async Task<object> TypeText(
         ControlRegistry registry,
         IUiAdapter ui,
+        IUiDispatcher dispatcher,
         [Description("The literal text to type.")] string text,
         [Description("Optional control handle to focus before typing.")] string? handle = null,
         [Description("Optional selector (first match) to focus before typing.")] string? selector = null)
@@ -152,9 +153,9 @@ public static class InputTools
         if (text is null)
             return Fail("text was null.");
 
-        return await UiDispatch.Run(() =>
+        return await dispatcher.Run(() =>
         {
-            var target = ResolveFocusTarget(registry, handle, selector, out var error);
+            var target = ResolveFocusTarget(registry, ui, handle, selector, out var error);
             if (error is not null)
                 return Fail(error);
 
@@ -172,8 +173,8 @@ public static class InputTools
     }
 
     /// <summary>
-    /// Sends one or more key chords (e.g. <c>Ctrl+S</c>, <c>Enter</c>, <c>Down</c>) to the
-    /// focused element by raising KeyDown + KeyUp routed events.
+    /// Sends one or more key chords (e.g. <c>Ctrl+S</c>, <c>Enter</c>, <c>Down</c>) to
+    /// the focused element by raising KeyDown + KeyUp routed events.
     /// </summary>
     [McpServerTool, Description(
         "Send key combinations to the focused element as KeyDown/KeyUp events. " +
@@ -183,6 +184,7 @@ public static class InputTools
     public static async Task<object> SendKeys(
         ControlRegistry registry,
         IUiAdapter ui,
+        IUiDispatcher dispatcher,
         [Description("One or more key chords, separated by spaces or commas. E.g. \"Ctrl+S\" or \"Down Down Enter\".")] string keys,
         [Description("Optional control handle to focus before sending keys.")] string? handle = null,
         [Description("Optional selector (first match) to focus before sending keys.")] string? selector = null)
@@ -190,9 +192,9 @@ public static class InputTools
         if (string.IsNullOrWhiteSpace(keys))
             return Fail("keys was empty.");
 
-        return await UiDispatch.Run(() =>
+        return await dispatcher.Run(() =>
         {
-            var target = ResolveFocusTarget(registry, handle, selector, out var resolveError);
+            var target = ResolveFocusTarget(registry, ui, handle, selector, out var resolveError);
             if (resolveError is not null)
                 return Fail(resolveError);
 
@@ -211,18 +213,18 @@ public static class InputTools
     // ------------------------------------------------------------------ helpers
 
     /// <summary>
-    /// Resolves the target <see cref="TopLevel"/> for pointer/scroll input. Order:
-    /// the window containing the resolved handle, else the window of the first
-    /// selector match, else the first open top level.
+    /// Resolves the target top-level for pointer/scroll input. Order: the window
+    /// containing the resolved handle, else the window of the first selector match,
+    /// else the first open top level.
     /// </summary>
     private static bool TryResolveTopLevel(
         ControlRegistry registry, IUiAdapter ui, string? handle, string? selector,
-        out TopLevel topLevel, out string error)
+        out object topLevel, out string error)
     {
         topLevel = null!;
         error = string.Empty;
 
-        Control? anchor = null;
+        object? anchor = null;
         if (!string.IsNullOrWhiteSpace(handle))
         {
             if (!registry.TryResolve(handle!, out anchor) || anchor is null)
@@ -233,7 +235,7 @@ public static class InputTools
         }
         else if (!string.IsNullOrWhiteSpace(selector))
         {
-            anchor = registry.Query(selector!).FirstOrDefault();
+            anchor = registry.Query(selector!, ui).FirstOrDefault();
             if (anchor is null)
             {
                 error = $"selector '{selector}' matched no controls.";
@@ -254,7 +256,7 @@ public static class InputTools
         }
 
         // No anchor: take the first open top level.
-        var first = ui.EnumerateRoots().OfType<TopLevel>().FirstOrDefault();
+        var first = ui.EnumerateRoots().FirstOrDefault();
         if (first is null)
         {
             error = "no open top level (window) is available to receive input.";
@@ -266,12 +268,12 @@ public static class InputTools
     }
 
     /// <summary>
-    /// Resolves an explicit control to focus before keyboard/text input, or null to
-    /// use the currently-focused element. Returns a non-null error string on a bad
+    /// Resolves an explicit control to focus before keyboard/text input, or null to use
+    /// the currently-focused element. Returns a non-null error string on a bad
     /// handle/selector.
     /// </summary>
-    private static Control? ResolveFocusTarget(
-        ControlRegistry registry, string? handle, string? selector, out string? error)
+    private static object? ResolveFocusTarget(
+        ControlRegistry registry, IUiAdapter ui, string? handle, string? selector, out string? error)
     {
         error = null;
 
@@ -287,7 +289,7 @@ public static class InputTools
 
         if (!string.IsNullOrWhiteSpace(selector))
         {
-            var match = registry.Query(selector!).FirstOrDefault();
+            var match = registry.Query(selector!, ui).FirstOrDefault();
             if (match is null)
             {
                 error = $"selector '{selector}' matched no controls.";

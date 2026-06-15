@@ -1,7 +1,6 @@
 using System.ComponentModel;
 using System.Diagnostics;
 using System.Text.Json;
-using Avalonia.Controls;
 using ModelContextProtocol.Server;
 
 namespace Keincheck.Core.Tools;
@@ -10,9 +9,9 @@ namespace Keincheck.Core.Tools;
 /// Mutating / semantic tools: set a property, drive a control through its
 /// UI-Automation peer, move keyboard focus, and wait for a UI condition. Every
 /// framework-specific operation is routed through <see cref="IUiAdapter"/>; the tool
-/// bodies only resolve controls (via <see cref="ControlRegistry"/>) and shape
-/// results. Visual-tree access is marshalled onto the Avalonia UI thread through
-/// <see cref="UiDispatch"/>; bad handles, selectors, and coercion failures are
+/// bodies only resolve elements (via <see cref="ControlRegistry"/>) and shape results.
+/// Visual-tree access is marshalled onto the UI thread through
+/// <see cref="IUiDispatcher"/>; bad handles, selectors, and coercion failures are
 /// reported as structured results rather than thrown.
 /// </summary>
 [McpServerToolType]
@@ -44,15 +43,16 @@ public static class ActionTools
 
     /// <summary>
     /// Sets a styled/CLR property on a control by name from a JSON value, using the
-    /// adapter's property writer for coercion (e.g. <c>"10,5,10,5"</c> →
-    /// <see cref="Avalonia.Thickness"/>). Address the control by a handle (preferred)
-    /// or a selector that resolves to exactly one match.
+    /// adapter's property writer for coercion (e.g. <c>"10,5,10,5"</c> → a Thickness).
+    /// Address the control by a handle (preferred) or a selector that resolves to
+    /// exactly one match.
     /// </summary>
     [McpServerTool(Name = "set_property"),
      Description("Set a control property by name from a JSON value (with type coercion). Address by handle or selector.")]
     public static async Task<object> SetProperty(
         ControlRegistry registry,
         IUiAdapter ui,
+        IUiDispatcher dispatcher,
         [Description("Control handle (e.g. \"ctl-1a\"). Mutually exclusive with selector; takes priority.")] string? handle,
         [Description("CSS-ish selector that must resolve to exactly one control (used when handle is omitted).")] string? selector,
         [Description("Property name to set, e.g. \"Width\", \"Background\", \"Margin\", \"IsEnabled\".")] string propertyName,
@@ -61,21 +61,22 @@ public static class ActionTools
         if (string.IsNullOrWhiteSpace(propertyName))
             return Error("Property name is required.");
 
-        return await UiDispatch.Run<object>(() =>
+        return await dispatcher.Run<object>(() =>
         {
-            var resolved = Resolve(registry, handle, selector);
+            var resolved = Resolve(registry, ui, handle, selector);
             if (resolved.Error is not null)
                 return resolved.Error;
 
             var control = resolved.Control!;
-            if (ui.WriteProperty(control, propertyName, value, out var error))
+            if (ui.TryWriteProperty(control, propertyName, value, out var error))
             {
+                ui.TryReadProperty(control, propertyName, out var newValue);
                 return new
                 {
                     ok = true,
                     handle = registry.Assign(control),
                     property = propertyName,
-                    newValue = ui.ReadProperty(control, propertyName),
+                    newValue,
                 };
             }
 
@@ -86,9 +87,9 @@ public static class ActionTools
     // ------------------------------------------------------------ automation_action
 
     /// <summary>
-    /// Performs a semantic action on a control through its UI-Automation peer.
-    /// When <paramref name="action"/> is <see cref="AutomationActionKind.Auto"/>
-    /// the first supported pattern is used in priority order:
+    /// Performs a semantic action on a control through its UI-Automation peer. When
+    /// <paramref name="action"/> is <see cref="AutomationActionKind.Auto"/> the first
+    /// supported pattern is used in priority order:
     /// Invoke → Toggle → ExpandCollapse → SelectionItem → Value. Provide
     /// <paramref name="value"/> for an explicit <c>SetValue</c>.
     /// </summary>
@@ -97,14 +98,15 @@ public static class ActionTools
     public static async Task<object> AutomationAction(
         ControlRegistry registry,
         IUiAdapter ui,
+        IUiDispatcher dispatcher,
         [Description("Control handle (e.g. \"ctl-1a\"). Mutually exclusive with selector; takes priority.")] string? handle,
         [Description("CSS-ish selector that must resolve to exactly one control (used when handle is omitted).")] string? selector,
         [Description("Explicit action: Auto, Invoke, Toggle, SetValue, Expand, Collapse, Select. Default Auto.")] AutomationActionKind action = AutomationActionKind.Auto,
         [Description("Value for SetValue (or Auto on a value-capable control). Ignored otherwise.")] string? value = null)
     {
-        return await UiDispatch.Run<object>(() =>
+        return await dispatcher.Run<object>(() =>
         {
-            var resolved = Resolve(registry, handle, selector);
+            var resolved = Resolve(registry, ui, handle, selector);
             if (resolved.Error is not null)
                 return resolved.Error;
 
@@ -137,20 +139,21 @@ public static class ActionTools
     // ----------------------------------------------------------------- set_focus
 
     /// <summary>
-    /// Moves keyboard focus to a control via the adapter. Reports whether the
-    /// control actually became focused.
+    /// Moves keyboard focus to a control via the adapter. Reports whether the control
+    /// actually became focused.
     /// </summary>
     [McpServerTool(Name = "set_focus"),
      Description("Move keyboard focus to a control (control.Focus()). Address by handle or selector.")]
     public static async Task<object> SetFocus(
         ControlRegistry registry,
         IUiAdapter ui,
+        IUiDispatcher dispatcher,
         [Description("Control handle (e.g. \"ctl-1a\"). Mutually exclusive with selector; takes priority.")] string? handle,
         [Description("CSS-ish selector that must resolve to exactly one control (used when handle is omitted).")] string? selector)
     {
-        return await UiDispatch.Run<object>(() =>
+        return await dispatcher.Run<object>(() =>
         {
-            var resolved = Resolve(registry, handle, selector);
+            var resolved = Resolve(registry, ui, handle, selector);
             if (resolved.Error is not null)
                 return resolved.Error;
 
@@ -163,7 +166,7 @@ public static class ActionTools
                 ok = true,
                 handle = id,
                 focusRequested = requested,
-                isFocused = ui.ReadProperty(control, "IsFocused") is true,
+                isFocused = ui.TryReadProperty(control, "IsFocused", out var f) && f is true,
             };
         });
     }
@@ -171,19 +174,20 @@ public static class ActionTools
     // ----------------------------------------------------------------- wait_for
 
     /// <summary>
-    /// Polls the UI thread until one of two conditions is met or a timeout
-    /// elapses: (a) a <paramref name="selector"/> matches at least one control,
-    /// or (b) the named <paramref name="propertyName"/> of the control addressed
-    /// by <paramref name="handle"/>/<paramref name="selector"/> JSON-equals
-    /// <paramref name="expected"/>. Each poll runs a short snapshot on the UI
-    /// thread; the wait between polls happens off the UI thread so the dispatcher
-    /// is never blocked.
+    /// Polls the UI thread until one of two conditions is met or a timeout elapses:
+    /// (a) a <paramref name="selector"/> matches at least one control, or (b) the named
+    /// <paramref name="propertyName"/> of the control addressed by
+    /// <paramref name="handle"/>/<paramref name="selector"/> JSON-equals
+    /// <paramref name="expected"/>. Each poll runs a short snapshot on the UI thread;
+    /// the wait between polls happens off the UI thread so the dispatcher is never
+    /// blocked.
     /// </summary>
     [McpServerTool(Name = "wait_for"),
      Description("Poll until a selector matches OR a control property equals a JSON value OR timeout. Does not block the UI thread between polls.")]
     public static async Task<object> WaitFor(
         ControlRegistry registry,
         IUiAdapter ui,
+        IUiDispatcher dispatcher,
         [Description("Selector to wait for. If 'property' is omitted, succeeds once this selector matches anything.")] string? selector,
         [Description("Control handle for a property-equality wait (alternative to selector).")] string? handle = null,
         [Description("Property name to compare; when set, waits until it equals 'expected'.")] string? propertyName = null,
@@ -208,15 +212,15 @@ public static class ActionTools
         {
             attempts++;
 
-            var outcome = await UiDispatch.Run<object?>(() =>
+            var outcome = await dispatcher.Run<object?>(() =>
             {
                 if (wantProperty)
                 {
-                    var resolved = Resolve(registry, handle, selector);
+                    var resolved = Resolve(registry, ui, handle, selector);
                     if (resolved.Control is null)
                         return null; // not resolvable yet — keep polling
 
-                    var actual = ui.ReadProperty(resolved.Control, propertyName!);
+                    ui.TryReadProperty(resolved.Control, propertyName!, out var actual);
                     if (JsonEquals(actual, expected!.Value))
                     {
                         return new
@@ -236,7 +240,7 @@ public static class ActionTools
                 }
 
                 // Existence wait.
-                var matches = registry.Query(selector!);
+                var matches = registry.Query(selector!, ui);
                 if (matches.Count > 0)
                 {
                     var handles = matches.Select(registry.Assign).ToArray();
@@ -281,15 +285,15 @@ public static class ActionTools
 
     private readonly struct Resolution
     {
-        public Control? Control { get; init; }
+        public object? Control { get; init; }
         public object? Error { get; init; }
     }
 
     /// <summary>
-    /// Resolves a control from a handle (preferred) or a selector. The selector
-    /// must match exactly one control. MUST be called on the UI thread.
+    /// Resolves a control from a handle (preferred) or a selector. The selector must
+    /// match exactly one control. MUST be called on the UI thread.
     /// </summary>
-    private static Resolution Resolve(ControlRegistry registry, string? handle, string? selector)
+    private static Resolution Resolve(ControlRegistry registry, IUiAdapter ui, string? handle, string? selector)
     {
         if (!string.IsNullOrWhiteSpace(handle))
         {
@@ -300,7 +304,7 @@ public static class ActionTools
 
         if (!string.IsNullOrWhiteSpace(selector))
         {
-            var matches = registry.Query(selector);
+            var matches = registry.Query(selector, ui);
             return matches.Count switch
             {
                 1 => new Resolution { Control = matches[0] },
@@ -323,8 +327,8 @@ public static class ActionTools
             : Merge(new { ok = false, error = message }, extra);
 
     /// <summary>
-    /// Shallow-merges two anonymous objects into a JSON-serializable dictionary
-    /// so callers receive a single flat result object.
+    /// Shallow-merges two anonymous objects into a JSON-serializable dictionary so
+    /// callers receive a single flat result object.
     /// </summary>
     private static object Merge(object baseObj, object extra)
     {
@@ -337,8 +341,8 @@ public static class ActionTools
     }
 
     /// <summary>
-    /// Compares a serializer-produced value (already JSON-friendly) against an
-    /// expected <see cref="JsonElement"/> by round-tripping both through JSON.
+    /// Compares a serializer-produced value (already JSON-friendly) against an expected
+    /// <see cref="JsonElement"/> by round-tripping both through JSON.
     /// </summary>
     private static bool JsonEquals(object? actual, JsonElement expected)
     {

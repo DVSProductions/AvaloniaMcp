@@ -57,7 +57,7 @@ public static class AppBuilderExtensions
             if (app.ApplicationLifetime is not null)
                 WireShutdown();
             else
-                Avalonia.Threading.Dispatcher.UIThread.Post(WireShutdown);
+                global::Avalonia.Threading.Dispatcher.UIThread.Post(WireShutdown);
         });
     }
 }

@@ -14,7 +14,8 @@ namespace Keincheck.Client;
 /// </summary>
 public sealed class BrokerClient : IAsyncDisposable
 {
-    private readonly Avalonia.Application _app;
+    private readonly IUiAdapter _adapter;
+    private readonly IUiDispatcher _dispatcher;
     private readonly McpClientOptions _options;
     private readonly Keincheck.Core.McpServerOptions _coreOptions;
     private readonly string _clientId;
@@ -25,13 +26,14 @@ public sealed class BrokerClient : IAsyncDisposable
     private Task? _runLoop;
     private long _heartbeatSeq;
 
-    private BrokerClient(Avalonia.Application app, McpClientOptions options)
+    private BrokerClient(IUiAdapter adapter, IUiDispatcher dispatcher, McpClientOptions options)
     {
-        _app = app;
+        _adapter = adapter;
+        _dispatcher = dispatcher;
         _options = options;
         _coreOptions = options.CoreOptions ?? new Keincheck.Core.McpServerOptions();
         _clientId = string.IsNullOrWhiteSpace(options.AppId)
-            ? (System.Reflection.Assembly.GetEntryAssembly()?.GetName().Name ?? "avalonia-app")
+            ? (System.Reflection.Assembly.GetEntryAssembly()?.GetName().Name ?? "app")
             : options.AppId!;
         _displayName = options.DisplayName ?? _clientId;
     }
@@ -40,16 +42,18 @@ public sealed class BrokerClient : IAsyncDisposable
     public string ClientId => _clientId;
 
     /// <summary>
-    /// Builds the tool host and starts the connect/serve loop on a background task.
-    /// Returns immediately; the client connects and reconnects on its own.
+    /// Builds the tool host (over the injected framework adapter/dispatcher) and starts
+    /// the connect/serve loop on a background task. Returns immediately; the client
+    /// connects and reconnects on its own.
     /// </summary>
-    public static BrokerClient Start(Avalonia.Application app, McpClientOptions options)
+    public static BrokerClient Start(IUiAdapter adapter, IUiDispatcher dispatcher, McpClientOptions options)
     {
-        ArgumentNullException.ThrowIfNull(app);
+        ArgumentNullException.ThrowIfNull(adapter);
+        ArgumentNullException.ThrowIfNull(dispatcher);
         ArgumentNullException.ThrowIfNull(options);
 
-        var client = new BrokerClient(app, options);
-        client._toolHost = ClientToolHost.Build(app, client._coreOptions);
+        var client = new BrokerClient(adapter, dispatcher, options);
+        client._toolHost = ClientToolHost.Build(adapter, dispatcher, client._coreOptions);
         client._runLoop = Task.Run(() => client.RunAsync(client._cts.Token));
         return client;
     }

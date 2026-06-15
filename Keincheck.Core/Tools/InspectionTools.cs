@@ -1,21 +1,18 @@
 using System.ComponentModel;
-using Avalonia;
-using Avalonia.Controls;
 using ModelContextProtocol.Server;
 
 namespace Keincheck.Core.Tools;
 
 /// <summary>
 /// Read-only inspection tools: enumerate windows, walk the logical/visual tree,
-/// query controls by selector, read properties, the data context, flattened
-/// text, recent binding errors, and resolve a control by hit-test or current
-/// keyboard focus. Every framework-specific operation is routed through
-/// <see cref="IUiAdapter"/>; the tool bodies only resolve controls (via
-/// <see cref="ControlRegistry"/>) and shape results. All UI access is marshalled
-/// onto the Avalonia UI thread through <see cref="UiDispatch"/>; bad handles and
-/// selectors are reported as structured results rather than thrown. Tree dumps are
-/// filtered and depth-/page-capped by default so a single call cannot flood the
-/// model with tokens.
+/// query controls by selector, read properties, the data context, flattened text,
+/// recent binding errors, and resolve a control by hit-test or current keyboard
+/// focus. Every framework-specific operation is routed through <see cref="IUiAdapter"/>;
+/// the tool bodies only resolve elements (via <see cref="ControlRegistry"/>) and shape
+/// results. All UI access is marshalled onto the UI thread through
+/// <see cref="IUiDispatcher"/>; bad handles and selectors are reported as structured
+/// results rather than thrown. Tree dumps are filtered and depth-/page-capped by
+/// default so a single call cannot flood the model with tokens.
 /// </summary>
 [McpServerToolType]
 public static class InspectionTools
@@ -30,27 +27,27 @@ public static class InspectionTools
     // ----------------------------------------------------------------- list_windows
 
     /// <summary>
-    /// Lists every open top-level (desktop windows, popups, or the single-view
-    /// root) with a stable handle, title, type, bounds, and active state.
+    /// Lists every open top-level (desktop windows, popups, or the single-view root)
+    /// with a stable handle, title, type, bounds, and active state.
     /// </summary>
     [McpServerTool(Name = "list_windows"),
      Description("List all open top-levels (windows / popups / single-view root) with id, title, type, bounds and active state.")]
-    public static async Task<object> ListWindows(ControlRegistry registry, IUiAdapter ui) =>
-        await UiDispatch.Run<object>(() =>
+    public static async Task<object> ListWindows(ControlRegistry registry, IUiAdapter ui, IUiDispatcher dispatcher) =>
+        await dispatcher.Run<object>(() =>
         {
             var windows = new List<object>();
             foreach (var root in ui.EnumerateRoots())
             {
-                if (root is not Control control)
+                if (!ui.IsControl(root))
                     continue;
 
                 windows.Add(new
                 {
-                    id = registry.Assign(control),
-                    title = ui.GetTitle(control),
-                    type = ui.GetTypeName(control),
-                    bounds = BoundsOf(ui, control),
-                    isActive = ui.IsActiveWindow(control),
+                    id = registry.Assign(root),
+                    title = ui.GetTitle(root),
+                    type = ui.GetTypeName(root),
+                    bounds = BoundsOf(ui, root),
+                    isActive = ui.IsActiveWindow(root),
                 });
             }
 
@@ -60,14 +57,15 @@ public static class InspectionTools
     // ------------------------------------------------------------- get_logical_tree
 
     /// <summary>
-    /// Returns the logical-tree subtree rooted at a control (by handle or
-    /// selector, default: all open top-levels), filtered and capped.
+    /// Returns the logical-tree subtree rooted at a control (by handle or selector,
+    /// default: all open top-levels), filtered and capped.
     /// </summary>
     [McpServerTool(Name = "get_logical_tree"),
      Description("Dump the LOGICAL tree under a control/window (by handle or selector; default all top-levels). Filtered + depth/page-capped to avoid huge dumps.")]
     public static async Task<object> GetLogicalTree(
         ControlRegistry registry,
         IUiAdapter ui,
+        IUiDispatcher dispatcher,
         [Description("Control handle to root the dump at. Mutually exclusive with selector; takes priority.")] string? handle = null,
         [Description("Selector to root the dump at (first match). Omit both to dump every open top-level.")] string? selector = null,
         [Description("Maximum tree depth to descend. Default 6, hard max 64.")] int maxDepth = DefaultTreeDepth,
@@ -75,20 +73,21 @@ public static class InspectionTools
         [Description("When true, skip controls that are not effectively enabled. Default false.")] bool enabledOnly = false,
         [Description("Number of root nodes to skip (pagination over the chosen roots). Default 0.")] int skip = 0,
         [Description("Number of root nodes to return. Default 200, hard max 2000.")] int take = DefaultTake) =>
-        await DumpTree(registry, ui, handle, selector, maxDepth, visibleOnly, enabledOnly, skip, take, logical: true);
+        await DumpTree(registry, ui, dispatcher, handle, selector, maxDepth, visibleOnly, enabledOnly, skip, take, logical: true);
 
     // -------------------------------------------------------------- get_visual_tree
 
     /// <summary>
-    /// Returns the visual-tree subtree rooted at a control (by handle or
-    /// selector, default: all open top-levels), filtered and capped. Includes
-    /// template-generated parts that the logical tree omits.
+    /// Returns the visual-tree subtree rooted at a control (by handle or selector,
+    /// default: all open top-levels), filtered and capped. Includes template-generated
+    /// parts that the logical tree omits.
     /// </summary>
     [McpServerTool(Name = "get_visual_tree"),
      Description("Dump the VISUAL tree under a control/window (by handle or selector; default all top-levels). Includes template parts. Filtered + depth/page-capped.")]
     public static async Task<object> GetVisualTree(
         ControlRegistry registry,
         IUiAdapter ui,
+        IUiDispatcher dispatcher,
         [Description("Control handle to root the dump at. Mutually exclusive with selector; takes priority.")] string? handle = null,
         [Description("Selector to root the dump at (first match). Omit both to dump every open top-level.")] string? selector = null,
         [Description("Maximum tree depth to descend. Default 6, hard max 64.")] int maxDepth = DefaultTreeDepth,
@@ -96,19 +95,20 @@ public static class InspectionTools
         [Description("When true, skip controls that are not effectively enabled. Default false.")] bool enabledOnly = false,
         [Description("Number of root nodes to skip (pagination over the chosen roots). Default 0.")] int skip = 0,
         [Description("Number of root nodes to return. Default 200, hard max 2000.")] int take = DefaultTake) =>
-        await DumpTree(registry, ui, handle, selector, maxDepth, visibleOnly, enabledOnly, skip, take, logical: false);
+        await DumpTree(registry, ui, dispatcher, handle, selector, maxDepth, visibleOnly, enabledOnly, skip, take, logical: false);
 
     // -------------------------------------------------------------- query_controls
 
     /// <summary>
-    /// Evaluates a CSS-ish selector and returns matching controls with handle,
-    /// type, name, and bounds.
+    /// Evaluates a CSS-ish selector and returns matching controls with handle, type,
+    /// name, and bounds.
     /// </summary>
     [McpServerTool(Name = "query_controls"),
      Description("Resolve a CSS-ish selector and return matching controls as [{ id, type, name, bounds }].")]
     public static async Task<object> QueryControls(
         ControlRegistry registry,
         IUiAdapter ui,
+        IUiDispatcher dispatcher,
         [Description("CSS-ish selector, e.g. \"Button[Name=ok]\", \"#submit\", \"StackPanel > TextBox\".")] string selector,
         [Description("Optional handle of a control whose top-level scopes the search. Omit to search all top-levels.")] string? scopeHandle = null,
         [Description("Number of matches to skip (pagination). Default 0.")] int skip = 0,
@@ -117,9 +117,9 @@ public static class InspectionTools
         if (string.IsNullOrWhiteSpace(selector))
             return Error("A selector is required.");
 
-        return await UiDispatch.Run<object>(() =>
+        return await dispatcher.Run<object>(() =>
         {
-            TopLevel? scope = null;
+            object? scope = null;
             if (!string.IsNullOrWhiteSpace(scopeHandle))
             {
                 if (!registry.TryResolve(scopeHandle, out var scopeControl) || scopeControl is null)
@@ -127,7 +127,7 @@ public static class InspectionTools
                 scope = ui.GetTopLevel(scopeControl);
             }
 
-            var matches = registry.Query(selector, scope);
+            var matches = registry.Query(selector, ui, scope);
             var total = matches.Count;
             var page = Page(matches, skip, take);
 
@@ -146,38 +146,32 @@ public static class InspectionTools
     // -------------------------------------------------------------- get_properties
 
     /// <summary>
-    /// Reads every registered styled/attached Avalonia property (plus a handful
-    /// of common CLR properties) of a control, serialized to JSON-friendly form.
+    /// Reads every registered styled/attached property (plus a handful of common CLR
+    /// properties) of a control, serialized to JSON-friendly form.
     /// </summary>
     [McpServerTool(Name = "get_properties"),
      Description("Read all registered styled/attached Avalonia properties (+ common CLR props) of a control. Address by handle or selector.")]
     public static async Task<object> GetProperties(
         ControlRegistry registry,
         IUiAdapter ui,
+        IUiDispatcher dispatcher,
         [Description("Control handle. Mutually exclusive with selector; takes priority.")] string? handle = null,
         [Description("Selector resolving to exactly one control (used when handle is omitted).")] string? selector = null) =>
-        await UiDispatch.Run<object>(() =>
+        await dispatcher.Run<object>(() =>
         {
-            var resolved = Resolve(registry, handle, selector);
+            var resolved = Resolve(registry, ui, handle, selector);
             if (resolved.Error is not null)
                 return resolved.Error;
 
             var control = resolved.Control!;
             var styled = new SortedDictionary<string, object?>(StringComparer.Ordinal);
 
-            foreach (var prop in ui.GetRegisteredProperties(control))
+            foreach (var name in ui.GetPropertyNames(control))
             {
                 // Stable, de-duplicated by property name; readable values only.
-                if (styled.ContainsKey(prop.Name))
+                if (styled.ContainsKey(name))
                     continue;
-                try
-                {
-                    styled[prop.Name] = ui.ReadProperty(control, prop);
-                }
-                catch
-                {
-                    styled[prop.Name] = null;
-                }
+                styled[name] = ui.TryReadProperty(control, name, out var value) ? value : null;
             }
 
             var clr = new SortedDictionary<string, object?>(StringComparer.Ordinal);
@@ -185,8 +179,7 @@ public static class InspectionTools
             {
                 if (styled.ContainsKey(name))
                     continue;
-                var value = ui.ReadProperty(control, name);
-                if (value is not null)
+                if (ui.TryReadProperty(control, name, out var value) && value is not null)
                     clr[name] = value;
             }
 
@@ -210,6 +203,7 @@ public static class InspectionTools
     public static async Task<object> GetProperty(
         ControlRegistry registry,
         IUiAdapter ui,
+        IUiDispatcher dispatcher,
         [Description("Property name, e.g. \"Width\", \"Background\", \"IsEnabled\".")] string propertyName,
         [Description("Control handle. Mutually exclusive with selector; takes priority.")] string? handle = null,
         [Description("Selector resolving to exactly one control (used when handle is omitted).")] string? selector = null)
@@ -217,9 +211,9 @@ public static class InspectionTools
         if (string.IsNullOrWhiteSpace(propertyName))
             return Error("A property name is required.");
 
-        return await UiDispatch.Run<object>(() =>
+        return await dispatcher.Run<object>(() =>
         {
-            var resolved = Resolve(registry, handle, selector);
+            var resolved = Resolve(registry, ui, handle, selector);
             if (resolved.Error is not null)
                 return resolved.Error;
 
@@ -228,21 +222,21 @@ public static class InspectionTools
 
             // Prefer the styled/attached property of that name (more values are
             // reachable that way), falling back to a CLR property read.
-            var avProp = ui.GetRegisteredProperties(control)
-                .FirstOrDefault(p => string.Equals(p.Name, propertyName, StringComparison.Ordinal));
+            var hasStyled = ui.GetPropertyNames(control)
+                .Any(p => string.Equals(p, propertyName, StringComparison.Ordinal));
 
             object? value;
             string source;
-            if (avProp is not null)
+            if (hasStyled)
             {
-                value = ui.ReadProperty(control, avProp);
+                ui.TryReadProperty(control, propertyName, out value);
                 source = "styled";
             }
             else
             {
-                value = ui.ReadProperty(control, propertyName);
+                var read = ui.TryReadProperty(control, propertyName, out value);
                 source = "clr";
-                if (value is null)
+                if (!read || value is null)
                     return Error($"Property '{propertyName}' was not found or is not readable on {ui.GetTypeName(control)}.",
                         new { handle = id });
             }
@@ -254,19 +248,20 @@ public static class InspectionTools
     // ------------------------------------------------------------- get_data_context
 
     /// <summary>
-    /// Serializes the control's <c>DataContext</c> (depth-limited and cycle-safe
-    /// via the adapter's property serializer).
+    /// Serializes the control's <c>DataContext</c> (depth-limited and cycle-safe via
+    /// the adapter's property serializer).
     /// </summary>
     [McpServerTool(Name = "get_data_context"),
      Description("Serialize a control's DataContext (depth-limited, cycle-safe). Address by handle or selector.")]
     public static async Task<object> GetDataContext(
         ControlRegistry registry,
         IUiAdapter ui,
+        IUiDispatcher dispatcher,
         [Description("Control handle. Mutually exclusive with selector; takes priority.")] string? handle = null,
         [Description("Selector resolving to exactly one control (used when handle is omitted).")] string? selector = null) =>
-        await UiDispatch.Run<object>(() =>
+        await dispatcher.Run<object>(() =>
         {
-            var resolved = Resolve(registry, handle, selector);
+            var resolved = Resolve(registry, ui, handle, selector);
             if (resolved.Error is not null)
                 return resolved.Error;
 
@@ -275,7 +270,7 @@ public static class InspectionTools
 
             // The serializer projects "DataContext" depth-limited and cycle-safe;
             // a null projection means there is no data context.
-            var value = ui.ReadProperty(control, "DataContext");
+            ui.TryReadProperty(control, "DataContext", out var value);
             if (value is null)
                 return new { ok = true, handle = id, hasDataContext = false, type = (string?)null, dataContext = (object?)null };
 
@@ -285,20 +280,21 @@ public static class InspectionTools
     // ----------------------------------------------------------------- get_text
 
     /// <summary>
-    /// Walks a subtree and concatenates the visible text it finds (the <c>Text</c>
-    /// and string <c>Content</c> of the controls), in document order.
+    /// Walks a subtree and concatenates the visible text it finds (the <c>Text</c> and
+    /// string <c>Content</c> of the controls), in document order.
     /// </summary>
     [McpServerTool(Name = "get_text"),
      Description("Flatten the visible text of a control subtree (TextBlock/TextBox text + string ContentControl content). Address by handle or selector.")]
     public static async Task<object> GetText(
         ControlRegistry registry,
         IUiAdapter ui,
+        IUiDispatcher dispatcher,
         [Description("Control handle to root the walk at. Mutually exclusive with selector; takes priority.")] string? handle = null,
         [Description("Selector resolving to exactly one control (used when handle is omitted).")] string? selector = null,
         [Description("When true, skip controls that are not effectively visible. Default true.")] bool visibleOnly = true) =>
-        await UiDispatch.Run<object>(() =>
+        await dispatcher.Run<object>(() =>
         {
-            var resolved = Resolve(registry, handle, selector);
+            var resolved = Resolve(registry, ui, handle, selector);
             if (resolved.Error is not null)
                 return resolved.Error;
 
@@ -306,7 +302,7 @@ public static class InspectionTools
             var id = registry.Assign(control);
 
             var parts = new List<string>();
-            CollectText(ui, control, visibleOnly, parts, new HashSet<Visual>(ReferenceEqualityComparer.Instance));
+            CollectText(ui, control, visibleOnly, parts, new HashSet<object>(ReferenceEqualityComparer.Instance));
 
             var text = string.Join(" ", parts);
             return new { ok = true, handle = id, fragments = parts.Count, text };
@@ -314,7 +310,7 @@ public static class InspectionTools
 
     // ----------------------------------------------------------- get_binding_errors
 
-    /// <summary>Returns the most-recent captured Avalonia binding errors, oldest first.</summary>
+    /// <summary>Returns the most-recent captured binding errors, oldest first.</summary>
     [McpServerTool(Name = "get_binding_errors"),
      Description("Return recent captured Avalonia binding errors (oldest first). n<=0 returns all buffered.")]
     public static Task<object> GetBindingErrors(
@@ -347,12 +343,13 @@ public static class InspectionTools
     public static async Task<object> HitTest(
         ControlRegistry registry,
         IUiAdapter ui,
+        IUiDispatcher dispatcher,
         [Description("X coordinate in the top-level's client space (device-independent pixels).")] double x,
         [Description("Y coordinate in the top-level's client space (device-independent pixels).")] double y,
         [Description("Handle of any control in the target window; its top-level is hit-tested. Omit to use the first open top-level.")] string? handle = null) =>
-        await UiDispatch.Run<object>(() =>
+        await dispatcher.Run<object>(() =>
         {
-            TopLevel? top;
+            object? top;
             if (!string.IsNullOrWhiteSpace(handle))
             {
                 if (!registry.TryResolve(handle, out var anchor) || anchor is null)
@@ -363,12 +360,12 @@ public static class InspectionTools
             }
             else
             {
-                top = ui.EnumerateRoots().OfType<TopLevel>().FirstOrDefault();
+                top = ui.EnumerateRoots().FirstOrDefault();
                 if (top is null)
                     return Error("No open top-level is available to hit-test.");
             }
 
-            var control = ui.HitTest(top, new Point(x, y));
+            var control = ui.HitTest(top, new UiPoint(x, y));
             if (control is null)
                 return new { ok = true, hit = false, point = new { x, y }, handle = (string?)null };
 
@@ -392,10 +389,11 @@ public static class InspectionTools
     public static async Task<object> GetFocusedElement(
         ControlRegistry registry,
         IUiAdapter ui,
+        IUiDispatcher dispatcher,
         [Description("Handle of any control in the target window; its top-level's focus manager is queried. Omit to use the first open top-level.")] string? handle = null) =>
-        await UiDispatch.Run<object>(() =>
+        await dispatcher.Run<object>(() =>
         {
-            TopLevel? top;
+            object? top;
             if (!string.IsNullOrWhiteSpace(handle))
             {
                 if (!registry.TryResolve(handle, out var anchor) || anchor is null)
@@ -406,7 +404,7 @@ public static class InspectionTools
             }
             else
             {
-                top = ui.EnumerateRoots().OfType<TopLevel>().FirstOrDefault();
+                top = ui.EnumerateRoots().FirstOrDefault();
                 if (top is null)
                     return Error("No open top-level is available.");
             }
@@ -431,6 +429,7 @@ public static class InspectionTools
     private static async Task<object> DumpTree(
         ControlRegistry registry,
         IUiAdapter ui,
+        IUiDispatcher dispatcher,
         string? handle,
         string? selector,
         int maxDepth,
@@ -439,29 +438,29 @@ public static class InspectionTools
         int skip,
         int take,
         bool logical) =>
-        await UiDispatch.Run<object>(() =>
+        await dispatcher.Run<object>(() =>
         {
             var depth = Math.Clamp(maxDepth <= 0 ? DefaultTreeDepth : maxDepth, 1, MaxTreeDepth);
 
             // Choose the set of roots: an explicit control, or all top-levels.
-            List<Control> roots;
+            List<object> roots;
             if (!string.IsNullOrWhiteSpace(handle) || !string.IsNullOrWhiteSpace(selector))
             {
-                var resolved = Resolve(registry, handle, selector);
+                var resolved = Resolve(registry, ui, handle, selector);
                 if (resolved.Error is not null)
                     return resolved.Error;
-                roots = new List<Control> { resolved.Control! };
+                roots = new List<object> { resolved.Control! };
             }
             else
             {
-                roots = ui.EnumerateRoots().OfType<Control>().ToList();
+                roots = ui.EnumerateRoots().Where(ui.IsControl).ToList();
             }
 
             var total = roots.Count;
             var page = Page(roots, skip, take);
 
-            // A reference-type flag so the recursion can flip it from inside
-            // lambdas (a `ref bool` cannot be captured by a lambda in C#).
+            // A reference-type flag so the recursion can flip it from inside lambdas
+            // (a `ref bool` cannot be captured by a lambda in C#).
             var truncated = new Flag();
             var nodes = page
                 .Select(r => BuildNode(registry, ui, r, depth, visibleOnly, enabledOnly, logical, truncated))
@@ -486,7 +485,7 @@ public static class InspectionTools
     private static object? BuildNode(
         ControlRegistry registry,
         IUiAdapter ui,
-        Control control,
+        object control,
         int remainingDepth,
         bool visibleOnly,
         bool enabledOnly,
@@ -498,8 +497,8 @@ public static class InspectionTools
         if (enabledOnly && !ui.IsEffectivelyEnabled(control))
             return null;
 
-        // Materialize matching child controls (filters applied) up front so we
-        // can report an accurate childCount even when depth runs out.
+        // Materialize matching child controls (filters applied) up front so we can
+        // report an accurate childCount even when depth runs out.
         var childControls = ChildControls(ui, control, logical)
             .Where(c => (!visibleOnly || ui.IsEffectivelyVisible(c)) && (!enabledOnly || ui.IsEffectivelyEnabled(c)))
             .ToList();
@@ -531,22 +530,21 @@ public static class InspectionTools
         };
     }
 
-    private static IEnumerable<Control> ChildControls(IUiAdapter ui, Control control, bool logical) =>
-        logical ? ui.GetLogicalChildren(control) : ui.GetVisualChildren(control);
+    private static IEnumerable<object> ChildControls(IUiAdapter ui, object control, bool logical) =>
+        (logical ? ui.GetLogicalChildren(control) : ui.GetVisualChildren(control)).Where(ui.IsControl);
 
     /// <summary>
     /// A tiny, predictable key-prop summary for tree nodes: a few high-signal
     /// properties when present, serialized JSON-friendly. Kept small on purpose.
     /// </summary>
-    private static Dictionary<string, object?> PropSummary(IUiAdapter ui, Control control)
+    private static Dictionary<string, object?> PropSummary(IUiAdapter ui, object control)
     {
         var summary = new Dictionary<string, object?>(StringComparer.Ordinal);
         foreach (var name in SummaryProps)
         {
             if (summary.Count >= PropSummaryCount)
                 break;
-            var value = ui.ReadProperty(control, name);
-            if (value is null)
+            if (!ui.TryReadProperty(control, name, out var value) || value is null)
                 continue;
             // Skip empty strings to keep the summary terse.
             if (value is string s && s.Length == 0)
@@ -558,7 +556,7 @@ public static class InspectionTools
 
     // ----------------------------------------------------------------- text helpers
 
-    private static void CollectText(IUiAdapter ui, Control control, bool visibleOnly, List<string> sink, HashSet<Visual> visited)
+    private static void CollectText(IUiAdapter ui, object control, bool visibleOnly, List<string> sink, HashSet<object> visited)
     {
         // Global visited guard: the merged logical+visual graph can contain cycles
         // (popup/overlay/adorner cross-links between the two trees), so without this a
@@ -573,22 +571,24 @@ public static class InspectionTools
         // Text-carrying controls expose either a CLR "Text" property (TextBlock,
         // TextBox, …) or a string "Content" (ContentControl). The serializer renders
         // both as a plain string, so a non-empty string read of either is real text.
-        if (ui.ReadProperty(control, "Text") is string t && t.Length > 0)
+        if (ui.TryReadProperty(control, "Text", out var tv) && tv is string t && t.Length > 0)
             sink.Add(t);
-        else if (ui.ReadProperty(control, "Content") is string cs && cs.Length > 0)
+        else if (ui.TryReadProperty(control, "Content", out var cv) && cv is string cs && cs.Length > 0)
             sink.Add(cs);
 
         // Merge logical + visual children (template parts carry text too) so e.g. a
         // Button's templated TextBlock is reached; the shared visited set dedups them.
-        foreach (var c in ui.GetLogicalChildren(control))
+        // Control-only (matches v1), so non-control intermediates and their subtrees are
+        // not traversed for text.
+        foreach (var c in ui.GetLogicalChildren(control).Where(ui.IsControl))
             CollectText(ui, c, visibleOnly, sink, visited);
-        foreach (var c in ui.GetVisualChildren(control))
+        foreach (var c in ui.GetVisualChildren(control).Where(ui.IsControl))
             CollectText(ui, c, visibleOnly, sink, visited);
     }
 
     // --------------------------------------------------------------- small helpers
 
-    private static object BoundsOf(IUiAdapter ui, Control c)
+    private static object BoundsOf(IUiAdapter ui, object c)
     {
         var b = ui.GetBounds(c);
         return new { x = b.X, y = b.Y, width = b.Width, height = b.Height };
@@ -597,9 +597,9 @@ public static class InspectionTools
     /// <summary>
     /// Best-effort type label for a serialized DataContext value. The serializer
     /// flattens an opaque view-model to its <c>ToString()</c> (a string) or a
-    /// collection, so the original CLR type is no longer recoverable through the
-    /// seam; report null in those cases rather than the misleading projection type.
-    /// Only a preserved scalar/value projection yields a concrete type name.
+    /// collection, so the original CLR type is no longer recoverable through the seam;
+    /// report null in those cases rather than the misleading projection type. Only a
+    /// preserved scalar/value projection yields a concrete type name.
     /// </summary>
     private static string? TypeNameOf(object value) =>
         value is string or System.Collections.IEnumerable ? null : value.GetType().FullName;
@@ -621,7 +621,7 @@ public static class InspectionTools
     /// Resolves a control from a handle (preferred) or a selector that must match
     /// exactly one control. MUST be called on the UI thread.
     /// </summary>
-    private static Resolution Resolve(ControlRegistry registry, string? handle, string? selector)
+    private static Resolution Resolve(ControlRegistry registry, IUiAdapter ui, string? handle, string? selector)
     {
         if (!string.IsNullOrWhiteSpace(handle))
         {
@@ -632,7 +632,7 @@ public static class InspectionTools
 
         if (!string.IsNullOrWhiteSpace(selector))
         {
-            var matches = registry.Query(selector);
+            var matches = registry.Query(selector, ui);
             return matches.Count switch
             {
                 1 => new Resolution { Control = matches[0] },
@@ -651,7 +651,7 @@ public static class InspectionTools
 
     private readonly struct Resolution
     {
-        public Control? Control { get; init; }
+        public object? Control { get; init; }
         public object? Error { get; init; }
     }
 
@@ -674,8 +674,8 @@ public static class InspectionTools
         return dict;
     }
 
-    // High-signal CLR properties appended to get_properties when not already a
-    // styled property of the same name.
+    // High-signal CLR properties appended to get_properties when not already a styled
+    // property of the same name.
     private static readonly string[] CommonClrProps =
     {
         "Name", "Classes", "DataContext", "TemplatedParent", "Parent",

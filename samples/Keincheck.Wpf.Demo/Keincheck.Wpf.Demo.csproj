@@ -1,0 +1,26 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>WinExe</OutputType>
+    <TargetFramework>net8.0-windows</TargetFramework>
+    <UseWPF>true</UseWPF>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <!-- The library targets net8.0-windows; this WinExe runs on the installed .NET 10
+         runtime via roll-forward, matching the Avalonia Keincheck.Demo. -->
+    <RollForward>Major</RollForward>
+  </PropertyGroup>
+
+  <!--
+    The WPF analog of samples/Keincheck.Demo. A minimal but representative WPF window
+    (Button "Save", TextBox "Input", a CheckBox, a ListBox with items, and the
+    custom-drawn GaugeControl with no automation peer) bound to a small ViewModel.
+    App startup calls app.UseKeincheckClient(o => o.AppId = "wpfdemo"), so the app
+    connects to the hub over the named pipe and is driven exactly like an Avalonia
+    client. Tools throw NotImplemented until the WpfUiAdapter bodies land in Stage B.
+  -->
+  <ItemGroup>
+    <ProjectReference Include="..\..\Keincheck.Wpf\Keincheck.Wpf.csproj" />
+  </ItemGroup>
+
+</Project>

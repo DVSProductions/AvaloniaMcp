@@ -1,6 +1,8 @@
 using System.IO.Pipelines;
 using System.Text.Json;
+using Keincheck.Avalonia;
 using Keincheck.Client;
+using Keincheck.Core;
 using Keincheck.Hub;
 using Keincheck.Protocol;
 using ModelContextProtocol.Protocol;
@@ -42,9 +44,12 @@ public sealed class Stage2SpikeTests
     [Fact]
     public void Mechanic1_BuildsTools_ExtractsSchema_AndInvokes()
     {
-        // Build the tool host over the running headless Application + Core spine.
-        var app = _session.RunOnUiThread(() => Avalonia.Application.Current!);
-        using var host = ClientToolHost.Build(app, new Keincheck.Core.McpServerOptions());
+        // Build the tool host over the Avalonia adapter/dispatcher + Core spine. The
+        // headless Application must exist for EnumerateRoots, so touch it on the UI thread.
+        _ = _session.RunOnUiThread(() => global::Avalonia.Application.Current!);
+        var adapter = new AvaloniaUiAdapter(new PropertyValueSerializer());
+        var dispatcher = new AvaloniaUiDispatcher();
+        using var host = ClientToolHost.Build(adapter, dispatcher, new Keincheck.Core.McpServerOptions());
 
         // (a) Tools were materialized from the Core [McpServerTool] methods.
         Assert.NotEmpty(host.Tools);

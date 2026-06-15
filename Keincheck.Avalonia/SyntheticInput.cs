@@ -2,24 +2,23 @@ using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Input;
 
-namespace Keincheck.Core;
+namespace Keincheck.Avalonia;
 
 /// <summary>
 /// Low-level synthetic-input engine shared by <see cref="AvaloniaUiAdapter"/>.
-/// Fabricates Avalonia routed input event args using the public 12.0.4
-/// constructors and raises them on the appropriate element. All methods assume
-/// they are already on the UI thread.
+/// Fabricates Avalonia routed input event args using the public 12.0.4 constructors
+/// and raises them on the appropriate element. All methods assume they are already on
+/// the UI thread.
 /// </summary>
 /// <remarks>
 /// <para>
-/// Fidelity note: a real platform pointer is created by the windowing backend and
-/// is wired into Avalonia's <c>PointerDevice</c>/capture machinery. The public API
-/// does not expose that pipeline, so we construct a standalone
-/// <see cref="Pointer"/> and raise the routed events directly on the hit-tested
-/// element. This drives the routed-event side of every control (the part
-/// custom-drawn controls actually handle) faithfully — including
-/// <c>ClickCount</c>, button state, modifiers and wheel delta — but does not run
-/// the backend's implicit pointer capture/over bookkeeping.
+/// Fidelity note: a real platform pointer is created by the windowing backend and is
+/// wired into Avalonia's <c>PointerDevice</c>/capture machinery. The public API does
+/// not expose that pipeline, so we construct a standalone <see cref="Pointer"/> and
+/// raise the routed events directly on the hit-tested element. This drives the
+/// routed-event side of every control (the part custom-drawn controls actually handle)
+/// faithfully — including <c>ClickCount</c>, button state, modifiers and wheel delta —
+/// but does not run the backend's implicit pointer capture/over bookkeeping.
 /// </para>
 /// </remarks>
 internal static class SyntheticInput

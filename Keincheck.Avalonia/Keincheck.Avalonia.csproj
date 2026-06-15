@@ -1,0 +1,32 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net8.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+
+    <!-- NuGet package metadata -->
+    <PackageId>Keincheck.Avalonia</PackageId>
+    <IsPackable>true</IsPackable>
+    <Version>0.2.0</Version>
+    <Authors>Keincheck</Authors>
+    <Description>The Avalonia 12 implementation of the Keincheck neutral UI seam: AvaloniaUiAdapter (IUiAdapter), AvaloniaUiDispatcher (IUiDispatcher), the binding-error sink, and the Avalonia UseMcpClient AppBuilder integration.</Description>
+    <PackageTags>avalonia;mcp;ai;automation;ui;introspection</PackageTags>
+    <IncludeBuildOutput>true</IncludeBuildOutput>
+  </PropertyGroup>
+
+  <!--
+    Keincheck.Avalonia owns ALL Avalonia type knowledge. It implements the neutral
+    IUiAdapter / IUiDispatcher over Avalonia 12 and wires the broker client through
+    Keincheck.Client's framework-free BrokerClientHost.
+  -->
+  <ItemGroup>
+    <PackageReference Include="Avalonia" Version="12.0.4" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\Keincheck.Core\Keincheck.Core.csproj" />
+    <ProjectReference Include="..\Keincheck.Client\Keincheck.Client.csproj" />
+  </ItemGroup>
+
+</Project>

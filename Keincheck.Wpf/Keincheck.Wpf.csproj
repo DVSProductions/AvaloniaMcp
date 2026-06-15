@@ -1,0 +1,32 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net8.0-windows</TargetFramework>
+    <UseWPF>true</UseWPF>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <!-- net10 consumers reference this net8-windows lib; roll forward. -->
+    <RollForward>Major</RollForward>
+
+    <!-- NuGet package metadata -->
+    <PackageId>Keincheck.Wpf</PackageId>
+    <IsPackable>true</IsPackable>
+    <Version>0.2.0</Version>
+    <Authors>Keincheck</Authors>
+    <Description>The WPF implementation of the Keincheck neutral UI seam (STAGE A scaffold): WpfUiAdapter (IUiAdapter), WpfUiDispatcher (IUiDispatcher), and the UseKeincheckClient application integration. Adapter logic lands in Stage B.</Description>
+    <PackageTags>wpf;mcp;ai;automation;ui;introspection</PackageTags>
+    <IncludeBuildOutput>true</IncludeBuildOutput>
+  </PropertyGroup>
+
+  <!--
+    Keincheck.Wpf owns ALL WPF type knowledge. It implements the neutral
+    IUiAdapter / IUiDispatcher over WPF and wires the broker client through
+    Keincheck.Client's framework-free BrokerClientHost. STAGE A: scaffold only —
+    the WpfUiAdapter bodies throw NotImplementedException so the project compiles.
+  -->
+  <ItemGroup>
+    <ProjectReference Include="..\Keincheck.Core\Keincheck.Core.csproj" />
+    <ProjectReference Include="..\Keincheck.Client\Keincheck.Client.csproj" />
+  </ItemGroup>
+
+</Project>

@@ -1,4 +1,5 @@
 using System.Text.Json;
+using Keincheck.Avalonia;
 using Keincheck.Core;
 using Xunit;
 
@@ -34,9 +35,9 @@ public class SpineTests
     public void PropertyValueSerializer_Coerces_Thickness_Via_TypeConverter()
     {
         var json = JsonDocument.Parse("\"10,5,10,5\"").RootElement;
-        var ok = PropertyValueSerializer.TryCoerce(json, typeof(Avalonia.Thickness), out var value, out var error);
+        var ok = PropertyValueSerializer.TryCoerce(json, typeof(global::Avalonia.Thickness), out var value, out var error);
         Assert.True(ok, error);
-        Assert.Equal(new Avalonia.Thickness(10, 5, 10, 5), value);
+        Assert.Equal(new global::Avalonia.Thickness(10, 5, 10, 5), value);
     }
 
     [Fact]
@@ -44,7 +45,7 @@ public class SpineTests
     {
         var sink = new BindingErrorSink(capacity: 3, inner: null, bindingOnly: true);
         for (var i = 0; i < 5; i++)
-            sink.Log(Avalonia.Logging.LogEventLevel.Warning, Avalonia.Logging.LogArea.Binding, null, "msg {Index}", i);
+            sink.Log(global::Avalonia.Logging.LogEventLevel.Warning, global::Avalonia.Logging.LogArea.Binding, null, "msg {Index}", i);
 
         var recent = sink.Recent(10).ToArray();
         Assert.Equal(3, recent.Length);          // bounded to capacity

@@ -4,6 +4,7 @@ using Avalonia.Controls;
 using Avalonia.Layout;
 using Avalonia.LogicalTree;
 using Avalonia.VisualTree;
+using Keincheck.Avalonia;
 using Keincheck.Core;
 using Xunit;
 
@@ -22,6 +23,12 @@ public sealed class SpineUiTests
     private readonly HeadlessSession _session;
 
     public SpineUiTests(HeadlessSession session) => _session = session;
+
+    // The neutral spine is now driven through a framework adapter. The headless tests
+    // use the real Avalonia adapter to resolve handles/selectors and read/write
+    // properties, exactly as the live host does.
+    private static AvaloniaUiAdapter NewAdapter(int maxDepth = 8) =>
+        new(new PropertyValueSerializer(maxDepth));
 
     // ---- ControlRegistry: Assign / TryResolve round-trip ------------------
 
@@ -87,7 +94,7 @@ public sealed class SpineUiTests
             var registry = new ControlRegistry();
             var window = TestWindowFactory.Create(out var saveButton, out _);
 
-            var matches = registry.Query("Button", scope: window);
+            var matches = registry.Query("Button", NewAdapter(), window);
 
             Assert.Contains(saveButton, matches);
         });
@@ -101,7 +108,7 @@ public sealed class SpineUiTests
             var registry = new ControlRegistry();
             var window = TestWindowFactory.Create(out var saveButton, out var inputBox);
 
-            var matches = registry.Query("Button[Name=Save]", scope: window);
+            var matches = registry.Query("Button[Name=Save]", NewAdapter(), window);
 
             Assert.Single(matches);
             Assert.Same(saveButton, matches[0]);
@@ -117,7 +124,7 @@ public sealed class SpineUiTests
             var registry = new ControlRegistry();
             var window = TestWindowFactory.Create(out _, out var inputBox);
 
-            var matches = registry.Query("#Input", scope: window);
+            var matches = registry.Query("#Input", NewAdapter(), window);
 
             Assert.Single(matches);
             Assert.Same(inputBox, matches[0]);
@@ -131,10 +138,11 @@ public sealed class SpineUiTests
         {
             var registry = new ControlRegistry();
             var window = TestWindowFactory.Create(out _, out _);
+            var ui = NewAdapter();
 
             // Contract: Name matching is ordinal/case-sensitive.
-            Assert.Empty(registry.Query("#save", scope: window));
-            Assert.Empty(registry.Query("Button[Name=save]", scope: window));
+            Assert.Empty(registry.Query("#save", ui, window));
+            Assert.Empty(registry.Query("Button[Name=save]", ui, window));
         });
     }
 
@@ -145,10 +153,11 @@ public sealed class SpineUiTests
         {
             var registry = new ControlRegistry();
             var window = TestWindowFactory.Create(out _, out _);
+            var ui = NewAdapter();
 
             // A malformed selector must yield an empty result, not an exception.
-            Assert.Empty(registry.Query("Button[", scope: window));
-            Assert.Empty(registry.Query("   ", scope: window));
+            Assert.Empty(registry.Query("Button[", ui, window));
+            Assert.Empty(registry.Query("   ", ui, window));
         });
     }
 
@@ -171,7 +180,7 @@ public sealed class SpineUiTests
             window.Show();
             try
             {
-                var matches = registry.Query("Button[Name=Save]");
+                var matches = registry.Query("Button[Name=Save]", NewAdapter());
                 Assert.Contains(saveButton, matches);
             }
             finally
@@ -188,10 +197,11 @@ public sealed class SpineUiTests
     {
         _session.RunOnUiThread(() =>
         {
-            var serializer = new PropertyValueSerializer();
+            var ui = NewAdapter();
             _ = TestWindowFactory.Create(out var saveButton, out _);
 
-            Assert.Equal(TestWindowFactory.ButtonName, serializer.Read(saveButton, "Name"));
+            Assert.True(ui.TryReadProperty(saveButton, "Name", out var value));
+            Assert.Equal(TestWindowFactory.ButtonName, value);
         });
     }
 
@@ -200,11 +210,12 @@ public sealed class SpineUiTests
     {
         _session.RunOnUiThread(() =>
         {
-            var serializer = new PropertyValueSerializer();
+            var ui = NewAdapter();
             _ = TestWindowFactory.Create(out var saveButton, out _);
             saveButton.Width = 64;
 
-            var read = serializer.Read(saveButton, Layoutable.WidthProperty);
+            // "Width" resolves to the styled Layoutable.WidthProperty read path.
+            Assert.True(ui.TryReadProperty(saveButton, "Width", out var read));
             Assert.Equal(64d, Assert.IsType<double>(read));
         });
     }
@@ -214,17 +225,18 @@ public sealed class SpineUiTests
     {
         _session.RunOnUiThread(() =>
         {
-            var serializer = new PropertyValueSerializer();
+            var ui = NewAdapter();
             _ = TestWindowFactory.Create(out var saveButton, out _);
 
             var value = JsonDocument.Parse("123").RootElement;
-            var ok = serializer.TryWrite(saveButton, "Width", value, out var error);
+            var ok = ui.TryWriteProperty(saveButton, "Width", value, out var error);
 
             Assert.True(ok, error);
             Assert.Equal(123d, saveButton.Width);
 
-            // Read it back through the serializer to close the loop.
-            Assert.Equal(123d, serializer.Read(saveButton, "Width"));
+            // Read it back through the adapter to close the loop.
+            Assert.True(ui.TryReadProperty(saveButton, "Width", out var read));
+            Assert.Equal(123d, read);
         });
     }
 
@@ -233,17 +245,18 @@ public sealed class SpineUiTests
     {
         _session.RunOnUiThread(() =>
         {
-            var serializer = new PropertyValueSerializer();
+            var ui = NewAdapter();
             _ = TestWindowFactory.Create(out var saveButton, out _);
 
             var value = JsonDocument.Parse("\"10,5,10,5\"").RootElement;
-            var ok = serializer.TryWrite(saveButton, "Margin", value, out var error);
+            var ok = ui.TryWriteProperty(saveButton, "Margin", value, out var error);
 
             Assert.True(ok, error);
             Assert.Equal(new Thickness(10, 5, 10, 5), saveButton.Margin);
 
             // The Read projection turns the Avalonia struct into its string form.
-            Assert.Equal(new Thickness(10, 5, 10, 5).ToString(), serializer.Read(saveButton, "Margin"));
+            Assert.True(ui.TryReadProperty(saveButton, "Margin", out var read));
+            Assert.Equal(new Thickness(10, 5, 10, 5).ToString(), read);
         });
     }
 
@@ -252,11 +265,11 @@ public sealed class SpineUiTests
     {
         _session.RunOnUiThread(() =>
         {
-            var serializer = new PropertyValueSerializer();
+            var ui = NewAdapter();
             _ = TestWindowFactory.Create(out var saveButton, out _);
 
             var value = JsonDocument.Parse("1").RootElement;
-            var ok = serializer.TryWrite(saveButton, "NoSuchProperty", value, out var error);
+            var ok = ui.TryWriteProperty(saveButton, "NoSuchProperty", value, out var error);
 
             Assert.False(ok);
             Assert.False(string.IsNullOrWhiteSpace(error));
@@ -283,7 +296,7 @@ public sealed class SpineUiTests
 
             // The cyclic merge would loop forever without the visited-guard. If the
             // guard is intact, this returns promptly with exactly the target control.
-            var matches = registry.Query("Button[Name=Target]", scope: window);
+            var matches = registry.Query("Button[Name=Target]", NewAdapter(), window);
 
             Assert.Contains(target, matches);
             return matches.Count;
@@ -417,12 +430,12 @@ internal sealed class VisualHost : Decorator
 /// </summary>
 internal sealed class FakeLogicalNode : Visual, ILogical, ISetLogicalParent
 {
-    private readonly Avalonia.Collections.AvaloniaList<ILogical> _logicalChildren = new();
+    private readonly global::Avalonia.Collections.AvaloniaList<ILogical> _logicalChildren = new();
     private ILogical? _logicalParent;
 
     public void AddLogicalChild(ILogical child) => _logicalChildren.Add(child);
 
-    Avalonia.Collections.IAvaloniaReadOnlyList<ILogical> ILogical.LogicalChildren => _logicalChildren;
+    global::Avalonia.Collections.IAvaloniaReadOnlyList<ILogical> ILogical.LogicalChildren => _logicalChildren;
     ILogical? ILogical.LogicalParent => _logicalParent;
     bool ILogical.IsAttachedToLogicalTree => false;
 

@@ -20,6 +20,7 @@
   <ItemGroup>
     <ProjectReference Include="..\..\Keincheck\Keincheck.csproj" />
     <ProjectReference Include="..\..\Keincheck.Core\Keincheck.Core.csproj" />
+    <ProjectReference Include="..\..\Keincheck.Avalonia\Keincheck.Avalonia.csproj" />
     <ProjectReference Include="..\..\Keincheck.Protocol\Keincheck.Protocol.csproj" />
     <ProjectReference Include="..\..\Keincheck.Client\Keincheck.Client.csproj" />
     <ProjectReference Include="..\..\Keincheck.Hub\Keincheck.Hub.csproj" />
