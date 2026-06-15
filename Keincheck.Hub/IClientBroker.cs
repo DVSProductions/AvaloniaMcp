@@ -121,6 +121,13 @@ public sealed record ClientInfo
     /// <summary>True if the hub or the client has marked this app read-only (mutating tools refused).</summary>
     public bool ReadOnly { get; init; }
 
+    /// <summary>
+    /// The informational version of the Keincheck.Client assembly this app is built against
+    /// (e.g. "0.5.0"), as self-reported on register. Null when the client did not report one
+    /// (older clients) or could not determine it. Purely informational.
+    /// </summary>
+    public string? ClientVersion { get; init; }
+
     /// <summary>The client's last-reported tool catalog (what the hub advertises when this client is active).</summary>
     public IReadOnlyList<ToolDescriptor> Tools { get; init; } = Array.Empty<ToolDescriptor>();
 

@@ -65,6 +65,32 @@ public class MessageRoundTripTests
     }
 
     [Fact]
+    public void RegisterMessage_ClientVersion_RoundTrips_And_Uses_Camel_Property()
+    {
+        // The client reports the Keincheck.Client build it links on Register so the hub can
+        // surface clientVersion without the AI probing each client.
+        var set = new RegisterMessage
+        {
+            ClientId = "ui", ProcessId = 1, ProtocolVersion = ProtocolVersion.Current,
+            ClientVersion = "0.5.0",
+        };
+
+        var json = JsonSerializer.Serialize(set, ProtocolJson.Options);
+        Assert.Contains("\"clientVersion\":\"0.5.0\"", json);
+        Assert.Equal("0.5.0", RoundTrip(set).ClientVersion);
+
+        // Default is null and an omitted version must not appear on the wire (ignore-null policy).
+        var unset = new RegisterMessage
+        {
+            ClientId = "worker", ProcessId = 2, ProtocolVersion = ProtocolVersion.Current,
+        };
+        Assert.Null(unset.ClientVersion);
+        var unsetJson = JsonSerializer.Serialize(unset, ProtocolJson.Options);
+        Assert.DoesNotContain("clientVersion", unsetJson);
+        Assert.Null(RoundTrip(unset).ClientVersion);
+    }
+
+    [Fact]
     public void ToolListMessage_OwnsWindows_RoundTrips()
     {
         // ownsWindows is recomputed and resent on every ToolList (windows open after startup).

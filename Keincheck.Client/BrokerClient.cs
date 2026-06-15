@@ -1,4 +1,5 @@
 using System.Diagnostics;
+using System.Reflection;
 using System.Text.Json;
 using Keincheck.Core;
 using Keincheck.Protocol;
@@ -99,6 +100,7 @@ public sealed class BrokerClient : IAsyncDisposable
             ProcessId = Environment.ProcessId,
             ProtocolVersion = ProtocolVersion.Current,
             OwnsWindows = await OwnsWindowsAsync(ct).ConfigureAwait(false),
+            ClientVersion = ClientAssemblyVersion,
         }, cancellationToken: ct).ConfigureAwait(false);
 
         // 2. Report tool catalog. ownsWindows is recomputed here (not just at register)
@@ -150,6 +152,30 @@ public sealed class BrokerClient : IAsyncDisposable
                 }
                 catch { /* channel may already be dead — ignore */ }
             }
+        }
+    }
+
+    /// <summary>
+    /// The informational version of the Keincheck.Client assembly this app links, reported on
+    /// register so the hub can show which client build each app is compiled against. Prefers
+    /// the <see cref="System.Reflection.AssemblyInformationalVersionAttribute"/> (e.g. "0.5.0")
+    /// and falls back to the plain assembly <see cref="System.Reflection.AssemblyName.Version"/>.
+    /// Strictly best-effort: any failure reports null rather than blocking registration.
+    /// </summary>
+    private static readonly string? ClientAssemblyVersion = ResolveClientAssemblyVersion();
+
+    private static string? ResolveClientAssemblyVersion()
+    {
+        try
+        {
+            var asm = typeof(BrokerClient).Assembly;
+            var info = asm.GetCustomAttribute<System.Reflection.AssemblyInformationalVersionAttribute>()
+                ?.InformationalVersion;
+            return string.IsNullOrWhiteSpace(info) ? asm.GetName().Version?.ToString() : info;
+        }
+        catch
+        {
+            return null;
         }
     }
 

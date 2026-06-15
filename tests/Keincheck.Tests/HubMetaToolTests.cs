@@ -318,6 +318,53 @@ public sealed class HubMetaToolTests
         finally { await TeardownAsync(client, hub, cts, serverTask); }
     }
 
+    // ---- hub_status meta-tool: hub + protocol version visibility ----------
+
+    [Fact]
+    public async Task Catalog_Advertises_HubStatus_MetaTool()
+    {
+        // The meta-tool must surface in the advertised tools/list (exercises BuildCatalog +
+        // IsMetaTool through the real MCP surface, mirroring Catalog_Advertises_WaitForClient).
+        var broker = BrokerWithClient();
+        broker.ActiveClientId = "app1";
+        var (client, hub, cts, serverTask) = await ConnectAsync(broker);
+        try
+        {
+            var names = (await client.ListToolsAsync(cancellationToken: cts.Token))
+                .Select(t => t.Name).ToHashSet();
+            Assert.Contains("hub_status", names);
+        }
+        finally { await TeardownAsync(client, hub, cts, serverTask); }
+    }
+
+    [Fact]
+    public async Task HubStatus_Reports_Version_Protocol_Active_And_Count()
+    {
+        var broker = BrokerWithClient(id: "app1", connected: true);
+        broker.ActiveClientId = "app1";
+        var (client, hub, cts, serverTask) = await ConnectAsync(broker);
+        try
+        {
+            var call = await client.CallToolAsync("hub_status", arguments: null, cancellationToken: cts.Token);
+
+            Assert.False(call.IsError ?? false);
+            var text = Assert.IsType<TextContentBlock>(Assert.Single(call.Content)).Text;
+            using var doc = JsonDocument.Parse(text);
+            var root = doc.RootElement;
+
+            // hubVersion is best-effort (may be null), but the property must be present and,
+            // when set, must not carry the "+githash" build-metadata suffix.
+            Assert.True(root.TryGetProperty("hubVersion", out var hubVersion));
+            if (hubVersion.ValueKind == JsonValueKind.String)
+                Assert.DoesNotContain("+", hubVersion.GetString()!);
+
+            Assert.Equal(ProtocolVersion.Current, root.GetProperty("protocolVersion").GetInt32());
+            Assert.Equal("app1", root.GetProperty("activeClientId").GetString());
+            Assert.Equal(1, root.GetProperty("clientCount").GetInt32());
+        }
+        finally { await TeardownAsync(client, hub, cts, serverTask); }
+    }
+
     private static ToolResultMessage EchoResult(string clientId, string toolName) => new()
     {
         ClientId = clientId,

@@ -1,3 +1,4 @@
+using System.Reflection;
 using System.Text.Json;
 using System.Text.Json.Nodes;
 using Keincheck.Protocol;
@@ -29,6 +30,7 @@ internal static class HubMetaTools
     public const string SelectClient     = "hub_select_client";
     public const string ClientStatus     = "hub_client_status";
     public const string WaitForClient    = "hub_wait_for_client";
+    public const string Status           = "hub_status";
     public const string Guide            = "hub_guide";
 
     // Record/replay meta-tools. These are listed here (names, schemas, catalog, and
@@ -45,7 +47,7 @@ internal static class HubMetaTools
     public static bool IsMetaTool(string name) => name switch
     {
         ListClients or ListKnownClients or LaunchClient or RestartClient
-            or SelectClient or ClientStatus or WaitForClient or Guide
+            or SelectClient or ClientStatus or WaitForClient or Status or Guide
             or RecordStart or RecordStop or RecordStatus or Replay or ExportTest => true,
         _ => false,
     };
@@ -105,6 +107,10 @@ internal static class HubMetaTools
             + "Args: { \"appId\"?: string, \"clientId\"?: string, \"timeoutMs\"?: int "
             + "(default 30000) }. Returns { clientId, connected:true } or a timeout result.",
             WaitForClientSchema());
+
+        yield return Meta(Status,
+            "Report the hub's own version, protocol version, active client, and connected "
+            + "client count. No arguments.");
 
         // ---- record / replay / export ----
         // (Routed in HubMcpServer before DispatchAsync; advertised here.)
@@ -209,6 +215,20 @@ internal static class HubMetaTools
                     : JsonResult(new { clientId = info.ClientId, connected = true });
             }
 
+            case Status:
+            {
+                // Pure metadata about the hub itself — no client targeted. Lets an operator
+                // see which hub/protocol build is running and how many apps are connected.
+                return JsonResult(new
+                {
+                    hubVersion = HubAssemblyVersion,
+                    protocolVersion = ProtocolVersion.Current,
+                    protocolRange = new { minimum = ProtocolVersion.Minimum, current = ProtocolVersion.Current },
+                    activeClientId = broker.ActiveClientId,
+                    clientCount = broker.ListClients().Count,
+                });
+            }
+
             case LaunchClient:
             {
                 if (!TryGetClientId(args, out var id, out var err))
@@ -291,6 +311,8 @@ To block until it is back, call `hub_wait_for_client { "appId": "myapp" }`.
 - `hub_client_status { clientId }` — full status of one client.
 - `hub_wait_for_client { appId?, clientId?, timeoutMs? }` — block until a (matching) client
   connects, then return it. Use after launching/rebuilding to wait for the app to come back.
+- `hub_status` — the hub's own version, protocol version, active client, and connected client
+  count (per-client builds appear as `clientVersion` in the client lists).
 - `hub_launch_client { clientId }` / `hub_restart_client { clientId }` — start / restart a
   known app by its recorded executable path. A restarted client keeps the **same id**.
 - `hub_record_start { name? }` / `hub_record_stop` / `hub_record_status` — record the
@@ -419,6 +441,7 @@ coordinates and is robust to layout shifts.
         processId = c.ProcessId,
         connected = liveIds.Contains(c.ClientId),
         ownsWindows = c.OwnsWindows,
+        clientVersion = c.ClientVersion,
         readOnly = c.ReadOnly,
         toolCount = c.Tools.Count,
         executablePath = c.ExecutablePath,
@@ -428,6 +451,32 @@ coordinates and is robust to layout shifts.
     /// <summary>The set of currently-connected hub-ids, the live-membership source of truth for <c>connected</c>.</summary>
     private static IReadOnlySet<string> LiveIds(IClientBroker broker) =>
         broker.ListClients().Select(c => c.ClientId).ToHashSet(StringComparer.Ordinal);
+
+    /// <summary>
+    /// The hub's own informational version, reported by <c>hub_status</c>. Prefers the
+    /// <see cref="AssemblyInformationalVersionAttribute"/> (e.g. "0.5.0"), strips any
+    /// <c>+githash</c> build-metadata suffix for readability, and falls back to the plain
+    /// assembly version. Best-effort: any failure yields null.
+    /// </summary>
+    private static readonly string? HubAssemblyVersion = ResolveHubAssemblyVersion();
+
+    private static string? ResolveHubAssemblyVersion()
+    {
+        try
+        {
+            var asm = typeof(HubMetaTools).Assembly;
+            var info = asm.GetCustomAttribute<AssemblyInformationalVersionAttribute>()?.InformationalVersion;
+            if (string.IsNullOrWhiteSpace(info))
+                return asm.GetName().Version?.ToString();
+            // Drop the SourceLink "+<commit>" build metadata so the reported version reads cleanly.
+            var plus = info.IndexOf('+');
+            return plus >= 0 ? info[..plus] : info;
+        }
+        catch
+        {
+            return null;
+        }
+    }
 
     private static bool TryGetClientId(JsonElement? args, out string clientId, out string error)
     {

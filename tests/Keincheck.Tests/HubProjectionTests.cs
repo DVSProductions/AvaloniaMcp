@@ -100,6 +100,41 @@ public sealed class HubProjectionTests
         finally { await TeardownAsync(client, hub, cts, serverTask); }
     }
 
+    // ---- clientVersion in the view ---------------------------------------
+
+    [Fact]
+    public async Task ListClients_View_Surfaces_ClientVersion()
+    {
+        // The client self-reports its Keincheck.Client build on register; the projection
+        // surfaces it as clientVersion so an operator can see which build each app links.
+        // A client that reported none projects clientVersion: null.
+        var broker = new StubClientBroker();
+        broker.Upsert(new ClientInfo
+        {
+            ClientId = "ui#1", AppId = "ui", IsConnected = true, ClientVersion = "0.5.0",
+        });
+        broker.Upsert(new ClientInfo
+        {
+            ClientId = "legacy#1", AppId = "legacy", IsConnected = true, ClientVersion = null,
+        });
+
+        var (client, hub, cts, serverTask) = await ConnectAsync(broker);
+        try
+        {
+            var call = await client.CallToolAsync("hub_list_clients", arguments: null, cancellationToken: cts.Token);
+            var view = ViewArray(call);
+            var byId = view.EnumerateArray().ToDictionary(e => e.GetProperty("clientId").GetString()!);
+
+            Assert.Equal("0.5.0", byId["ui#1"].GetProperty("clientVersion").GetString());
+            // A client that reported no version: the shared serializer omits null properties,
+            // so clientVersion is absent (or, if present, explicitly null) — never a value.
+            Assert.False(
+                byId["legacy#1"].TryGetProperty("clientVersion", out var legacyVersion)
+                && legacyVersion.ValueKind == JsonValueKind.String);
+        }
+        finally { await TeardownAsync(client, hub, cts, serverTask); }
+    }
+
     // ---- finding-3 hardening: connected recomputed from live membership ----
 
     [Fact]

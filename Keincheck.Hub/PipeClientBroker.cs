@@ -252,6 +252,7 @@ public sealed class PipeClientBroker : IClientBroker, IAsyncDisposable
                 WorkingDirectory = cwd,
                 ReadOnly = existingReadOnly || profileReadOnly,
                 OwnsWindows = reg.OwnsWindows,
+                ClientVersion = reg.ClientVersion,
                 ConnectedAtUtc = DateTimeOffset.UtcNow,
             };
             live.Touch();
@@ -795,6 +796,7 @@ public sealed class PipeClientBroker : IClientBroker, IAsyncDisposable
         ProcessId = c.ProcessId,
         IsConnected = true,
         OwnsWindows = c.OwnsWindows,
+        ClientVersion = c.ClientVersion,
         ReadOnly = c.ReadOnly,
         Tools = c.Tools,
         ExecutablePath = c.ExecutablePath,
@@ -889,6 +891,7 @@ public sealed class PipeClientBroker : IClientBroker, IAsyncDisposable
         public string? WorkingDirectory { get; set; }
         public bool ReadOnly { get; set; }
         public bool OwnsWindows { get; set; }
+        public string? ClientVersion { get; set; }
         public DateTimeOffset ConnectedAtUtc { get; set; }
         public IReadOnlyList<ToolDescriptor> Tools { get; set; } = Array.Empty<ToolDescriptor>();
 

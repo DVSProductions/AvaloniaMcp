@@ -124,6 +124,15 @@ public sealed class RegisterMessage
     /// </summary>
     [JsonPropertyName("ownsWindows")]
     public bool OwnsWindows { get; set; }
+
+    /// <summary>
+    /// The informational version of the Keincheck.Client assembly the host app is built
+    /// against (e.g. "0.5.0"). Best-effort and purely informational — surfaced by the hub
+    /// so an operator can see which client build each app links. Null when the client
+    /// cannot determine its own version. Defaults to null.
+    /// </summary>
+    [JsonPropertyName("clientVersion")]
+    public string? ClientVersion { get; set; }
 }
 
 /// <summary>
