@@ -6,9 +6,15 @@
     <Nullable>enable</Nullable>
     <ImplicitUsings>enable</ImplicitUsings>
     <AssemblyName>keincheck-connect</AssemblyName>
-    <!-- A tiny stdio shim the AI's MCP client spawns. Keep it lean and AOT-friendly
-         later; for now just a trivial byte-pump + ensure-hub-running. -->
+    <!-- A tiny stdio shim the AI's MCP client spawns: a byte-pump + ensure-hub-running.
+         Native-AOT on publish (dotnet publish -r <rid>) produces a small, self-contained
+         native exe that starts instantly and needs no .NET runtime. The AOT analyzers are
+         always on (IsAotCompatible) so the shim stays trim/AOT-clean. A plain build (dev)
+         is unaffected — AOT only engages on publish. -->
     <InvariantGlobalization>true</InvariantGlobalization>
+    <PublishAot>true</PublishAot>
+    <IsAotCompatible>true</IsAotCompatible>
+    <StripSymbols>true</StripSymbols>
   </PropertyGroup>
 
   <ItemGroup>
