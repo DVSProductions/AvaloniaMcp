@@ -137,6 +137,7 @@ public static class InspectionTools
                 type = ui.GetTypeName(c),
                 name = ui.GetName(c),
                 bounds = BoundsOf(ui, c),
+                globalBounds = GlobalBoundsOf(ui, c),
             }).ToArray();
 
             return new { count = items.Length, total, skip = Math.Max(0, skip), controls = items };
@@ -378,6 +379,7 @@ public static class InspectionTools
                 type = ui.GetTypeName(control),
                 name = ui.GetName(control),
                 bounds = BoundsOf(ui, control),
+                globalBounds = GlobalBoundsOf(ui, control),
             };
         });
 
@@ -421,6 +423,7 @@ public static class InspectionTools
                 type = ui.GetTypeName(control),
                 name = ui.GetName(control),
                 bounds = BoundsOf(ui, control),
+                globalBounds = GlobalBoundsOf(ui, control),
             };
         });
 
@@ -524,6 +527,7 @@ public static class InspectionTools
             type = ui.GetTypeName(control),
             name = ui.GetName(control),
             bounds = BoundsOf(ui, control),
+            globalBounds = GlobalBoundsOf(ui, control),
             childCount = childControls.Count,
             props = PropSummary(ui, control),
             children,
@@ -592,6 +596,22 @@ public static class InspectionTools
     {
         var b = ui.GetBounds(c);
         return new { x = b.X, y = b.Y, width = b.Width, height = b.Height };
+    }
+
+    /// <summary>
+    /// The control's box in its TOP-LEVEL client coordinates (device-independent pixels) —
+    /// the global accessor the reviewer wanted so callers need not sum parent-relative
+    /// offsets across containers. Returns <c>{ x, y, width, height }</c> when the element has
+    /// a top-level AND <see cref="IUiAdapter.TryGetBoundsInTopLevel"/> succeeds, else
+    /// <c>null</c> (e.g. a top-level itself, or an element not laid out / not sharing a
+    /// coordinate root). Emitted alongside the parent-relative <c>bounds</c>. UI-thread only.
+    /// </summary>
+    private static object? GlobalBoundsOf(IUiAdapter ui, object c)
+    {
+        var topLevel = ui.GetTopLevel(c);
+        if (topLevel is null || !ui.TryGetBoundsInTopLevel(c, topLevel, out var r))
+            return null;
+        return new { x = r.X, y = r.Y, width = r.Width, height = r.Height };
     }
 
     /// <summary>

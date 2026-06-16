@@ -55,6 +55,101 @@ public sealed partial class WpfUiAdapter
 
     /// <inheritdoc />
     /// <remarks>
+    /// Scaled-render override: <paramref name="scale"/> (already clamped to <c>1..16</c> by the
+    /// caller) multiplies the element's native DIP size <em>before</em> the longest side is
+    /// clamped to <paramref name="maxDim"/>, so a tiny control is rasterized larger (legibly)
+    /// rather than at its native handful of pixels. <c>scale == 1</c> reproduces the 2-arg path
+    /// exactly. Implemented by upscaling the DIP extents and rendering them through the same
+    /// <see cref="ClampToPixels"/> + <see cref="RenderVisual"/> RTB pipeline (the RTB's DPI bakes
+    /// in the final pixel scale, exactly like the native path).
+    /// <para>
+    /// The GDI <c>PrintWindow</c> fallback (used only when the RTB render is blank — e.g. a
+    /// locked workstation) reads on-screen device pixels and has no scale control, so it
+    /// <em>ignores</em> <paramref name="scale"/> and captures at native resolution; that path
+    /// is a degraded-session safety net, not the legibility path.
+    /// </para>
+    /// </remarks>
+    public bool TryRenderToPng(object element, int maxDim, double scale, out byte[] png, out string error)
+    {
+        // scale<=1 (or the unset default) is the native path, byte-for-byte unchanged.
+        if (!(scale > 1.0))
+            return TryRenderToPng(element, maxDim, out png, out error);
+
+        png = Array.Empty<byte>();
+        error = string.Empty;
+
+        if (element is not FrameworkElement target)
+        {
+            error = "Target is not a renderable visual.";
+            return false;
+        }
+
+        // Primary: RTB at the requested scale. Upscaling the DIP extents feeds larger
+        // dimensions into the same clamp+render math, so the longest side is still capped at
+        // maxDim while small controls gain real pixels.
+        if (TryRenderViaRtbScaled(target, maxDim, scale, out png, out var rtbError))
+            return true;
+
+        // Fallback: native-resolution GDI capture (no scale control — see <remarks>). Better a
+        // legible-at-native capture than no capture when the RTB target is dead.
+        if (TryRenderViaGdi(target, maxDim, out png, out var gdiError))
+            return true;
+
+        error = $"Scaled RenderTargetBitmap path failed ({rtbError}) and the GDI PrintWindow fallback also failed ({gdiError}).";
+        return false;
+    }
+
+    /// <summary>
+    /// The scaled RTB path: renders a <see cref="Window"/>'s content visual (or any other
+    /// <see cref="FrameworkElement"/>'s own subtree) at <paramref name="scale"/>× its native DIP
+    /// size, with the longest pixel side still clamped to <paramref name="maxDim"/>. Returns
+    /// false (no terminal error) when the render is blank so the caller can fall back to GDI.
+    /// </summary>
+    private bool TryRenderViaRtbScaled(
+        FrameworkElement element, int maxDim, double scale, out byte[] png, out string error)
+    {
+        png = Array.Empty<byte>();
+        error = string.Empty;
+
+        // A Window renders blank when rasterized directly; render its content child instead
+        // (same rule the native window path uses).
+        var renderTarget = element is Window window
+            ? WindowContentVisual(window) ?? element
+            : element;
+
+        EnsureArranged(renderTarget);
+        var size = renderTarget.RenderSize;
+        if (size.Width <= 0 || size.Height <= 0)
+        {
+            error = $"Control '{Describe(renderTarget)}' has no renderable size " +
+                    $"({size.Width}x{size.Height}); it may not be laid out or visible.";
+            return false;
+        }
+
+        var max = maxDim > 0 ? maxDim : _defaultMaxDimension;
+
+        // Upscale the DIP extents by `scale`, THEN clamp the longest side to maxDim. The pixel
+        // dimensions and the effective render scale both come out of the shared ClampToPixels
+        // math, so an element smaller than maxDim/scale is rasterized at the full `scale`, while
+        // a larger one is still capped at maxDim (never exceeding the server's limit).
+        var (pixelW, pixelH, effScale) = ClampToPixels(size.Width * scale, size.Height * scale, max);
+
+        try
+        {
+            return EncodeVerified(
+                RenderVisual(renderTarget, pixelW, pixelH, effScale, cropPixels: null), out png, out error);
+        }
+        catch (Exception ex)
+        {
+            // RenderVisual bakes effScale into the RTB DPI; if the direct subtree render throws,
+            // report it so the caller can try the (native-resolution) GDI fallback.
+            error = $"Scaled render of '{Describe(renderTarget)}' failed ({ex.Message}).";
+            return false;
+        }
+    }
+
+    /// <inheritdoc />
+    /// <remarks>
     /// Renders <paramref name="topLevel"/> via the existing <see cref="RenderTargetBitmap"/>
     /// path to obtain the base bitmap and the DIP→pixel <c>scale</c> it was downscaled at, then
     /// composes the numbered overlays in a single <see cref="DrawingVisual"/>: the base image at

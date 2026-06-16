@@ -58,8 +58,19 @@ public sealed class PropertyValueSerializer
             case string:
             case bool:
             case byte or sbyte or short or ushort or int or uint or long or ulong:
-            case float or double or decimal:
+            case decimal: // decimal cannot be non-finite, so it is always JSON-safe as-is
                 return value;
+            // Non-finite floating-point (Infinity/-Infinity/NaN) is NOT representable in
+            // JSON; System.Text.Json throws on it ("Infinity cannot be written as valid
+            // JSON"), which crashed get_properties when a styled prop (e.g. MaxWidth =
+            // double.PositiveInfinity) reached the host serializer. Project the non-finite
+            // value to its invariant-culture string here so EVERY value path and nesting
+            // level is covered (Reduce recurses for collections); finite values stay raw
+            // numbers. Centralizing the guard here is why neither adapter needs its own.
+            case float f:
+                return float.IsFinite(f) ? value : f.ToString(CultureInfo.InvariantCulture);
+            case double d:
+                return double.IsFinite(d) ? value : d.ToString(CultureInfo.InvariantCulture);
         }
 
         var type = value.GetType();

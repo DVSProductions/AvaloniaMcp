@@ -180,6 +180,24 @@ public interface IUiAdapter
     bool TryRenderToPng(object element, int maxDim, out byte[] png, out string error);
 
     /// <summary>
+    /// Renders <paramref name="element"/> to PNG like <see cref="TryRenderToPng(object,int,out byte[],out string)"/>,
+    /// but first scales the element render by <paramref name="scale"/>. A
+    /// <paramref name="scale"/> &gt;= 1 renders the element NATIVELY at that multiple of its
+    /// own size, so a small control is captured legibly instead of being a few pixels wide;
+    /// the adapter still clamps the longest side of the result to <paramref name="maxDim"/>.
+    /// A <paramref name="scale"/> &lt;= 1 (the default) behaves exactly like the 2-arg
+    /// overload. UI-thread only.
+    /// </summary>
+    /// <remarks>
+    /// The default implementation ignores <paramref name="scale"/> and delegates to the
+    /// 2-arg <see cref="TryRenderToPng(object,int,out byte[],out string)"/>, so an adapter
+    /// that has not implemented scaled rendering still produces a usable screenshot. The
+    /// Avalonia/WPF adapters override this to render at the requested multiple.
+    /// </remarks>
+    bool TryRenderToPng(object element, int maxDim, double scale, out byte[] png, out string error) =>
+        TryRenderToPng(element, maxDim, out png, out error);
+
+    /// <summary>
     /// Renders <paramref name="topLevel"/> to PNG honoring <paramref name="maxDim"/> (as
     /// <see cref="TryRenderToPng"/> does) and then draws each <see cref="UiMark"/> as a
     /// numbered box overlay — the "set-of-marks" image <c>screenshot_marked</c> returns.

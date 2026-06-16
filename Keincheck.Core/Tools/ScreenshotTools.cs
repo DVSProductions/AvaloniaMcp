@@ -31,7 +31,9 @@ public static class ScreenshotTools
         "Render a window to a PNG screenshot and return it as image content. " +
         "Optionally target a specific window via a control handle (e.g. \"ctl-1a\") " +
         "or a CSS-ish selector (e.g. \"Window[Name=main]\"); when omitted, the first " +
-        "open top-level window is captured.")]
+        "open top-level window is captured. Use scale > 1 to render at a multiple of the " +
+        "native size for capturing small windows legibly (clamped 1..16; longest side is " +
+        "still bounded by the server's max screenshot dimension).")]
     public static Task<ContentBlock> ScreenshotWindow(
         ControlRegistry registry,
         IUiAdapter ui,
@@ -39,14 +41,17 @@ public static class ScreenshotTools
         McpServerOptions options,
         [Description("Optional control handle or selector identifying a window (or any control inside it). " +
                      "If omitted, the first open top-level window is used.")]
-        string? target = null)
+        string? target = null,
+        [Description("Render scale multiplier for legible capture of small windows. 1 (default) = native; " +
+                     "clamped to 1..16. The longest side is still clamped to the server's max dimension.")]
+        double scale = 1)
         => dispatcher.Run(() =>
         {
             // Resolve the TopLevel to render.
             if (!TryResolveTopLevel(registry, ui, target, out var topLevel, out var resolveError))
                 return Error(resolveError);
 
-            if (!ui.TryRenderToPng(topLevel!, options.MaxScreenshotDimension, out var png, out var renderError))
+            if (!ui.TryRenderToPng(topLevel!, options.MaxScreenshotDimension, ClampScale(scale), out var png, out var renderError))
                 return Error(renderError);
 
             return Image(png);
@@ -59,14 +64,19 @@ public static class ScreenshotTools
         "Render a single control (and its descendants) to a PNG screenshot and return " +
         "it as image content. Address the control by handle (e.g. \"ctl-1a\") or by a " +
         "CSS-ish selector (e.g. \"Button[Name=ok]\"); a selector matching multiple " +
-        "controls captures the first match in document order.")]
+        "controls captures the first match in document order. Use scale > 1 to render a " +
+        "tiny control at a multiple of its native size so it is legible (clamped 1..16; the " +
+        "longest side is still bounded by the server's max screenshot dimension).")]
     public static Task<ContentBlock> ScreenshotControl(
         ControlRegistry registry,
         IUiAdapter ui,
         IUiDispatcher dispatcher,
         McpServerOptions options,
         [Description("Control handle (\"ctl-1a\") or CSS-ish selector (\"Button[Name=ok]\").")]
-        string target)
+        string target,
+        [Description("Render scale multiplier for legible capture of small controls. 1 (default) = native; " +
+                     "clamped to 1..16. The longest side is still clamped to the server's max dimension.")]
+        double scale = 1)
         => dispatcher.Run(() =>
         {
             if (string.IsNullOrWhiteSpace(target))
@@ -77,7 +87,7 @@ public static class ScreenshotTools
 
             // The adapter renders the control subtree directly, falling back to a
             // cropped TopLevel render when a direct render is not usable.
-            if (!ui.TryRenderToPng(control!, options.MaxScreenshotDimension, out var png, out var renderError))
+            if (!ui.TryRenderToPng(control!, options.MaxScreenshotDimension, ClampScale(scale), out var png, out var renderError))
                 return Error(renderError);
 
             return Image(png);
@@ -142,6 +152,14 @@ public static class ScreenshotTools
     }
 
     // ---- misc --------------------------------------------------------------
+
+    /// <summary>
+    /// Clamps a requested render scale into a sane range. 1 (or anything &lt;= 1) keeps the
+    /// native-size render; values above 16 are capped so a caller cannot request an
+    /// arbitrarily large off-screen surface. NaN/Infinity collapse to 1.
+    /// </summary>
+    private static double ClampScale(double scale) =>
+        double.IsFinite(scale) ? Math.Clamp(scale, 1, 16) : 1;
 
     private static string Describe(IUiAdapter ui, object control)
     {

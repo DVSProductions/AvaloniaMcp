@@ -441,15 +441,23 @@ public sealed class AvaloniaUiAdapter : IUiAdapter
     // ----------------------------------------------------------------- render
 
     /// <inheritdoc />
-    public bool TryRenderToPng(object element, int maxDim, out byte[] png, out string error)
+    public bool TryRenderToPng(object element, int maxDim, out byte[] png, out string error) =>
+        TryRenderToPng(element, maxDim, scale: 1, out png, out error);
+
+    /// <inheritdoc />
+    public bool TryRenderToPng(object element, int maxDim, double scale, out byte[] png, out string error)
     {
         // A Window/TopLevel renders as a whole visual; any other control renders its
         // own subtree (with a cropped-TopLevel fallback). This unifies the v1
         // TryRenderControlToPng / TryRenderVisualToPng split behind one neutral method.
+        // renderScale >= 1 upscales a small control for legibility BEFORE the longest
+        // side is clamped to maxDim; a non-positive request degrades to native (1).
+        var renderScale = scale > 0 ? scale : 1;
+
         if (element is TopLevel topLevel)
-            return TryRenderVisualToPng(topLevel, maxDim, cropRect: null, out png, out error);
+            return TryRenderVisualToPng(topLevel, maxDim, cropRect: null, renderScale, out png, out error);
         if (element is Control control)
-            return TryRenderControlToPng(control, maxDim, out png, out error);
+            return TryRenderControlToPng(control, maxDim, renderScale, out png, out error);
 
         png = Array.Empty<byte>();
         error = "Target is not a renderable visual.";
@@ -560,7 +568,7 @@ public sealed class AvaloniaUiAdapter : IUiAdapter
         }
     }
 
-    private bool TryRenderControlToPng(Control control, int maxDimension, out byte[] png, out string error)
+    private bool TryRenderControlToPng(Control control, int maxDimension, double renderScale, out byte[] png, out string error)
     {
         png = Array.Empty<byte>();
         error = string.Empty;
@@ -574,7 +582,7 @@ public sealed class AvaloniaUiAdapter : IUiAdapter
             return false;
         }
 
-        var (pixelW, pixelH, scale) = ClampToPixels(localSize.Width, localSize.Height, max);
+        var (pixelW, pixelH, scale) = ClampToPixels(localSize.Width, localSize.Height, max, renderScale);
 
         // Primary path: render the control subtree directly.
         try
@@ -587,7 +595,8 @@ public sealed class AvaloniaUiAdapter : IUiAdapter
         }
         catch (Exception ex)
         {
-            // Fallback: render the whole TopLevel and crop to the control's bounds.
+            // Fallback: render the whole TopLevel and crop to the control's bounds. The
+            // requested upscale carries through so a cropped fallback is just as legible.
             var topLevel = TopLevel.GetTopLevel(control);
             if (topLevel is null)
             {
@@ -602,11 +611,12 @@ public sealed class AvaloniaUiAdapter : IUiAdapter
             }
 
             var cropRect = new Rect(localSize).TransformToAABB(toRoot);
-            return TryRenderVisualToPng(topLevel, max, cropRect, out png, out error);
+            return TryRenderVisualToPng(topLevel, max, cropRect, renderScale, out png, out error);
         }
     }
 
-    private bool TryRenderVisualToPng(Visual visual, int maxDimension, Rect? cropRect, out byte[] png, out string error)
+    private bool TryRenderVisualToPng(
+        Visual visual, int maxDimension, Rect? cropRect, double renderScale, out byte[] png, out string error)
     {
         png = Array.Empty<byte>();
         error = string.Empty;
@@ -619,7 +629,13 @@ public sealed class AvaloniaUiAdapter : IUiAdapter
             return false;
         }
 
-        var (pixelW, pixelH, scale) = ClampToPixels(fullSize.Width, fullSize.Height, max);
+        // No crop: the whole visual is the output, so the upscale applies to the full
+        // render. With a crop the full top-level is just a source bitmap (native scale);
+        // the upscale is applied to the cropped output instead so the saved region — not
+        // the throwaway intermediate — is what gets enlarged.
+        var (pixelW, pixelH, scale) = cropRect is null
+            ? ClampToPixels(fullSize.Width, fullSize.Height, max, renderScale)
+            : ClampToPixels(fullSize.Width, fullSize.Height, max);
 
         using var rtb = new RenderTargetBitmap(
             new PixelSize(pixelW, pixelH), new Vector(96 * scale, 96 * scale));
@@ -638,7 +654,7 @@ public sealed class AvaloniaUiAdapter : IUiAdapter
             return false;
         }
 
-        var (cropW, cropH, cropScale) = ClampToPixels(clamped.Width, clamped.Height, max);
+        var (cropW, cropH, cropScale) = ClampToPixels(clamped.Width, clamped.Height, max, renderScale);
         using var cropped = new RenderTargetBitmap(
             new PixelSize(cropW, cropH), new Vector(96 * cropScale, 96 * cropScale));
         using (var ctx = cropped.CreateDrawingContext())
@@ -660,12 +676,23 @@ public sealed class AvaloniaUiAdapter : IUiAdapter
     }
 
     private static (int width, int height, double scale) ClampToPixels(
-        double dipWidth, double dipHeight, int max)
+        double dipWidth, double dipHeight, int max) =>
+        ClampToPixels(dipWidth, dipHeight, max, renderScale: 1);
+
+    /// <summary>
+    /// Maps a DIP box to a pixel box and the matching render scale. The effective scale
+    /// starts at <paramref name="renderScale"/> (>=1 enlarges a small control for
+    /// legibility) and is reduced only when the upscaled longest side would exceed
+    /// <paramref name="max"/>, so the cap is always honored. With renderScale=1 this is
+    /// identical to the original native-or-downscale behavior.
+    /// </summary>
+    private static (int width, int height, double scale) ClampToPixels(
+        double dipWidth, double dipHeight, int max, double renderScale)
     {
-        var scale = 1.0;
-        var largest = Math.Max(dipWidth, dipHeight);
+        var scale = renderScale > 0 ? renderScale : 1.0;
+        var largest = Math.Max(dipWidth, dipHeight) * scale;
         if (largest > max)
-            scale = max / largest;
+            scale *= max / largest;
 
         var w = Math.Max(1, (int)Math.Round(dipWidth * scale));
         var h = Math.Max(1, (int)Math.Round(dipHeight * scale));

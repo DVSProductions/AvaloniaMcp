@@ -159,46 +159,17 @@ public sealed partial class WpfUiAdapter
     /// <para>
     /// WPF layout properties default to non-finite doubles far more readily than Avalonia
     /// (e.g. <c>MaxWidth</c>/<c>MaxHeight</c> default to <see cref="double.PositiveInfinity"/>,
-    /// and arrange math can yield <see cref="double.NaN"/>). Those values flow through the
-    /// neutral serializer's primitive fast-path untouched, but <c>System.Text.Json</c> (used
-    /// by the MCP host to serialize the whole tool result) throws on infinity/NaN by default.
-    /// So we sanitize the reduced tree here — in the adapter that owns framework-value
-    /// conversion — turning any non-finite <c>double</c>/<c>float</c> into its invariant
-    /// string form ("Infinity"/"-Infinity"/"NaN") so a single odd property can never crash
+    /// and arrange math can yield <see cref="double.NaN"/>). <c>System.Text.Json</c> (used by
+    /// the MCP host to serialize the whole tool result) throws on infinity/NaN by default, but
+    /// the neutral <see cref="PropertyValueSerializer"/> now guarantees JSON-safe non-finite
+    /// values centrally — its <c>Reduce</c> turns any non-finite <c>double</c>/<c>float</c>
+    /// (at every nesting level) into its invariant string form ("Infinity"/"-Infinity"/"NaN").
+    /// So no adapter-side sanitizing is needed here, and a single odd property can never crash
     /// an entire <c>get_properties</c> dump.
     /// </para>
     /// </summary>
     private object? Project(object? value) =>
-        SanitizeNonFinite(_serializer.ToJsonFriendly(value, RenderElement, RenderLeaf));
-
-    /// <summary>
-    /// Recursively replaces non-finite <see cref="double"/>/<see cref="float"/> values in an
-    /// already-reduced JSON-friendly tree (primitives, strings, and the serializer's
-    /// <c>List&lt;object?&gt;</c> collections) with their invariant string representation, so
-    /// the result is always valid JSON for the MCP host's serializer.
-    /// </summary>
-    private static object? SanitizeNonFinite(object? reduced)
-    {
-        switch (reduced)
-        {
-            case double d when double.IsInfinity(d) || double.IsNaN(d):
-                return d.ToString(System.Globalization.CultureInfo.InvariantCulture);
-            case float f when float.IsInfinity(f) || float.IsNaN(f):
-                return f.ToString(System.Globalization.CultureInfo.InvariantCulture);
-            case string or bool or double or float or decimal
-                or byte or sbyte or short or ushort or int or uint or long or ulong:
-                return reduced;
-            case System.Collections.IEnumerable list and not string:
-            {
-                var items = new List<object?>();
-                foreach (var item in list)
-                    items.Add(SanitizeNonFinite(item));
-                return items;
-            }
-            default:
-                return reduced;
-        }
-    }
+        _serializer.ToJsonFriendly(value, RenderElement, RenderLeaf);
 
     private static string? RenderElement(object value) =>
         value is FrameworkElement fe

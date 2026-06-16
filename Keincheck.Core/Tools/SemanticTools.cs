@@ -115,10 +115,13 @@ public static class SemanticTools
         [Description("When true (default), mark only controls the adapter reports as interactive; when false, mark anything with a name/role.")] bool interactiveOnly = true)
         => dispatcher.Run(() =>
         {
-            if (!TryResolveTopLevel(registry, ui, target, out var topLevel, out var resolveError))
+            if (!TryResolveTopLevel(registry, ui, target, out var topLevel, out var markRoot, out var resolveError))
                 return ErrorResult(resolveError);
 
-            if (!TryRenderMarked(registry, ui, options, topLevel!, maxMarks, interactiveOnly,
+            // Scope marks to the resolved target's subtree (markRoot) while still rendering the
+            // whole window for context; when no target / target IS the top-level, markRoot ==
+            // topLevel and behavior is unchanged.
+            if (!TryRenderMarked(registry, ui, options, topLevel!, markRoot!, maxMarks, interactiveOnly,
                     out var picks, out var png, out var renderError))
                 return ErrorResult(renderError);
 
@@ -157,11 +160,13 @@ public static class SemanticTools
         [Description("Depth of the bundled semantic summary. Default 4, hard max 64.")] int summaryDepth = DescribeMaxDepth)
         => dispatcher.Run(() =>
         {
-            if (!TryResolveTopLevel(registry, ui, target, out var topLevel, out var resolveError))
+            if (!TryResolveTopLevel(registry, ui, target, out var topLevel, out var markRoot, out var resolveError))
                 return ErrorResult(resolveError);
 
             // --- set-of-marks render (shared with screenshot_marked) ---
-            if (!TryRenderMarked(registry, ui, options, topLevel!, maxMarks, interactiveOnly,
+            // Marks are scoped to the resolved target's subtree (markRoot); the whole window is
+            // still rendered for context. No target / target == top-level keeps prior behavior.
+            if (!TryRenderMarked(registry, ui, options, topLevel!, markRoot!, maxMarks, interactiveOnly,
                     out var picks, out var png, out var renderError))
                 return ErrorResult(renderError);
 
@@ -366,19 +371,25 @@ public static class SemanticTools
     private readonly record struct MarkPick(string Handle, UiSemanticInfo Info, UiRect Rect);
 
     /// <summary>
-    /// Walks <paramref name="topLevel"/> (shared visited-guard, merged logical+visual,
-    /// document order) and selects MARKABLE controls: effectively visible AND
+    /// Walks the subtree under <paramref name="markRoot"/> (shared visited-guard, merged
+    /// logical+visual, document order) and selects MARKABLE controls: effectively visible AND
     /// (<paramref name="interactiveOnly"/> ? interactive : has a name/role) AND having a
-    /// real on-screen box via <see cref="IUiAdapter.TryGetBoundsInTopLevel"/>. Caps at
-    /// <paramref name="cap"/> in document order. MUST be called on the UI thread.
+    /// real on-screen box via <see cref="IUiAdapter.TryGetBoundsInTopLevel"/> against
+    /// <paramref name="topLevel"/>. Starting the DFS at <paramref name="markRoot"/> (the
+    /// resolved target) rather than the top-level scopes marks to that control's region, so the
+    /// <paramref name="cap"/> is spent inside the target instead of on title-bar chrome; boxes
+    /// are still in <paramref name="topLevel"/> client coords so they land in the full-window
+    /// render. When <paramref name="markRoot"/> == <paramref name="topLevel"/> the whole window
+    /// is marked (unchanged behavior). Caps at <paramref name="cap"/> in document order. MUST be
+    /// called on the UI thread.
     /// </summary>
     private static List<MarkPick> CollectMarkable(
-        ControlRegistry registry, IUiAdapter ui, object topLevel, bool interactiveOnly, int cap)
+        ControlRegistry registry, IUiAdapter ui, object topLevel, object markRoot, bool interactiveOnly, int cap)
     {
         var picks = new List<MarkPick>();
         var visited = new HashSet<object>(ReferenceEqualityComparer.Instance);
         var stack = new Stack<object>();
-        stack.Push(topLevel);
+        stack.Push(markRoot);
 
         // Iterative DFS keeps the document order of a recursive pre-order walk while staying
         // immune to the deep/cyclic graphs that would overflow a recursive walk: we push
@@ -417,16 +428,18 @@ public static class SemanticTools
 
     /// <summary>
     /// The shared body of <c>screenshot_marked</c> and <c>describe_screen</c>: collect the
-    /// markable controls under <paramref name="topLevel"/>, number them, and render the
-    /// annotated PNG via <see cref="IUiAdapter.TryRenderAnnotated"/>. Returns <c>false</c>
-    /// with a reason in <paramref name="error"/> when rendering fails. MUST be called on the
-    /// UI thread.
+    /// markable controls under <paramref name="markRoot"/> (the resolved target subtree, default
+    /// the whole <paramref name="topLevel"/>), number them, and render the annotated PNG of the
+    /// full <paramref name="topLevel"/> via <see cref="IUiAdapter.TryRenderAnnotated"/>. Returns
+    /// <c>false</c> with a reason in <paramref name="error"/> when rendering fails. MUST be
+    /// called on the UI thread.
     /// </summary>
     private static bool TryRenderMarked(
         ControlRegistry registry,
         IUiAdapter ui,
         McpServerOptions options,
         object topLevel,
+        object markRoot,
         int maxMarks,
         bool interactiveOnly,
         out IReadOnlyList<MarkPick> picks,
@@ -434,7 +447,7 @@ public static class SemanticTools
         out string error)
     {
         var cap = Math.Clamp(maxMarks <= 0 ? 60 : maxMarks, 1, 500);
-        var collected = CollectMarkable(registry, ui, topLevel, interactiveOnly, cap);
+        var collected = CollectMarkable(registry, ui, topLevel, markRoot, interactiveOnly, cap);
 
         var marks = new List<UiMark>(collected.Count);
         for (var i = 0; i < collected.Count; i++)
@@ -486,11 +499,15 @@ public static class SemanticTools
     /// Resolves the top-level to render/walk: the window containing a resolved
     /// handle/selector target, else the first open top-level. Mirrors
     /// <see cref="ScreenshotTools"/>' resolution so the two behave identically.
+    /// <paramref name="target"/> additionally surfaces the resolved target CONTROL so the
+    /// caller can scope marks to that control's subtree: it is the resolved control when a
+    /// handle/selector is given, else the top-level itself (whole-window marking).
     /// </summary>
     private static bool TryResolveTopLevel(
-        ControlRegistry registry, IUiAdapter ui, string? target, out object? topLevel, out string error)
+        ControlRegistry registry, IUiAdapter ui, string? target, out object? topLevel, out object? targetControl, out string error)
     {
         topLevel = null;
+        targetControl = null;
         error = string.Empty;
 
         if (!string.IsNullOrWhiteSpace(target))
@@ -519,6 +536,7 @@ public static class SemanticTools
                 return false;
             }
 
+            targetControl = control;
             return true;
         }
 
@@ -529,6 +547,7 @@ public static class SemanticTools
             return false;
         }
 
+        targetControl = topLevel; // no target: mark the whole window (unchanged behavior)
         return true;
     }
 
